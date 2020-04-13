@@ -1,0 +1,10 @@
+[package]
+name = "soundfx-rs"
+version = "0.1.0"
+authors = ["jude-lafitteIII <judewrs@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+serenity = "0.8"
+sqlx = "0.3"
+dotenv = "0.15"
