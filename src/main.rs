@@ -1,26 +1,43 @@
 use serenity::{
     client::{
-        Client, Context
+        bridge::{
+            gateway::GatewayIntents,
+            voice::ClientVoiceManager,
+        },
+        Client, Context,
     },
     framework::standard::{
-        Args, StandardFramework
+        Args, CommandResult, StandardFramework,
+        macros::{
+            command, group,
+        }
     },
     model::{
         channel::Message
     },
-    prelude::{
-        EventHandler, TypeMapKey, Mutex
-    }
+    prelude::*,
+    voice::ffmpeg,
 };
 
 use sqlx::{
     Pool,
-    mysql::MySqlPool
+    mysql::{
+        MySqlPool,
+        MySqlConnection,
+    }
 };
 
 use dotenv::dotenv;
 
-use std::{env, sync::Arc};
+use tokio::{
+    fs::File,
+};
+
+use std::{
+    env,
+    path::Path,
+    sync::Arc,
+};
 
 struct SQLPool;
 
@@ -35,7 +52,7 @@ impl TypeMapKey for VoiceManager {
 }
 
 #[group]
-#[commands()]
+#[commands(play)]
 struct General;
 
 struct Sound {
@@ -47,23 +64,28 @@ struct Sound {
 // create event handler for bot
 struct Handler;
 
+#[serenity::async_trait]
 impl EventHandler for Handler {}
 
 // entry point
 #[tokio::main]
-fn main() {
-    dotenv();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv()?;
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("?"))
         .group(&GENERAL_GROUP);
 
-    let mut client = Client::new_with_framework(&env::var("DISCORD_TOKEN").expect("Missing token from environment"), Handler, framework)
-        .await
-        .expect("Error occurred creating client");
+    let mut client = Client::new_with_extras(
+        &env::var("DISCORD_TOKEN").expect("Missing token from environment"),
+        |extras| { extras
+            .framework(framework)
+            .event_handler(Handler)
+            .intents(GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILDS)
+        }).await.expect("Error occurred creating client");
 
     {
-        let pool = MySqlPool::new(env::var("DATABASE_URL"));
+        let pool = MySqlPool::new(&env::var("DATABASE_URL").expect("No database URL provided")).await.unwrap();
 
         let mut data = client.data.write().await;
         data.insert::<SQLPool>(pool);
@@ -71,77 +93,126 @@ fn main() {
         data.insert::<VoiceManager>(Arc::clone(&client.voice_manager));
     }
 
-    let _ = client.start().await.map_err(|reason| println!("Failed to start client: {:?}", reason));
+    client.start().await?;
+
+    Ok(())
 }
 
-async fn search_for_sound(query: String, db_connector: &MySqlConnection) -> Result<Sound, Box<dyn std::error::Error>> {
+async fn search_for_sound(query: &str, db_pool: MySqlPool) -> Result<Sound, Box<dyn std::error::Error>> {
 
     if query.to_lowercase().starts_with("id:") {
         let id = query[3..].parse::<u32>()?;
 
-        let sound = sqlx::query!(
+        let sound = sqlx::query_as_unchecked!(
+            Sound,
             "
-SELECT name, src
-FROM sounds
-WHERE id = ?
-LIMIT 1
+SELECT id, name, src
+    FROM sounds
+    WHERE id = ?
+    LIMIT 1
             ",
             id
         )
-            .fetch_one(&db_connector)
+            .fetch_one(&db_pool)
             .await?;
 
-        Ok(Sound {
-            name: sound.name,
-            id,
-            src: sound.src,
-        })
+        Ok(sound)
     }
     else {
         let name = query;
 
-        let sound = sqlx::query!(
+        let sound = sqlx::query_as_unchecked!(
+            Sound,
             "
-SELECT id, src
-FROM sounds
-ORDER BY rand()
-WHERE name = ?
-LIMIT 1
+SELECT id, name, src
+    FROM sounds
+    WHERE name = ?
+    ORDER BY rand()
+    LIMIT 1
             ",
             name
         )
-            .fetch_one(&db_connector)
+            .fetch_one(&db_pool)
             .await?;
 
-        Ok(Sound {
-            name,
-            id: sound.id,
-            src: sound.src,
-        })
+        Ok(sound)
     }
 }
 
+async fn store_sound_source(sound: &Sound) -> Result<String, Box<dyn std::error::Error>> {
+    let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
+
+    let path_name = format!("{}/sound-{}", caching_location, sound.id);
+    let path = Path::new(&path_name);
+
+    if !path.exists() {
+        use tokio::prelude::*;
+
+        let mut file = File::create(&path).await?;
+
+        file.write_all(sound.src.as_ref()).await?;
+    }
+
+    Ok(path_name)
+}
 
 #[command]
-async fn play(ctx: &mut Context, msg: &Message, args: Args) {
-    let search_term = args.collect().join(" ");
+async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+    let guild = match msg.guild(&ctx.cache).await {
+        Some(guild) => guild,
 
-    let pool_lock = ctx.data.read().await
-        .get::<SQLPool>().expect("Could not get SQL Pool out of data");
+        None => {
+            return Ok(());
+        }
+    };
 
-    let mut pool = pool_lock.lock().await;
+    let guild_id = guild.read().await.id;
 
-    let sound_res = search_for_sound(search_term, pool).await;
+    let channel_to_join = guild.read().await
+        .voice_states.get(&msg.author.id)
+        .and_then(|voice_state| voice_state.channel_id);
 
-    match sound_res {
-        Ok(sound) => {
-            let source = sound.src;
+    match channel_to_join {
+        Some(user_channel) => {
+            let search_term = args.rest();
 
+            let pool = ctx.data.read().await
+                .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
+            let sound = search_for_sound(search_term, pool).await?;
+
+            let fp = store_sound_source(&sound).await?;
+
+            let voice_manager_lock = ctx.data.read().await
+                .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
+
+            let mut voice_manager = voice_manager_lock.lock().await;
+
+            match voice_manager.get_mut(guild_id) {
+                Some(handler) => {
+                    // play sound
+                    handler.play(ffmpeg(fp).await?);
+                }
+
+                None => {
+                    // try & join a voice channel
+                    match voice_manager.join(guild_id, user_channel) {
+                        Some(handler) => {
+                            handler.play(ffmpeg(fp).await?);
+                        }
+
+                        None => {
+                            msg.channel_id.say(&ctx, "Failed to join channel").await?;
+                        }
+                    };
+                }
+            }
         }
 
-        Err(reason) => {
-
+        None => {
+            msg.channel_id.say(&ctx, "You are not in a voice chat!").await?;
         }
     }
+
+    Ok(())
 }
