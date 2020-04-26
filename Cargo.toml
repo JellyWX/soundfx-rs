@@ -6,5 +6,5 @@ edition = "2018"
 
 [dependencies]
 serenity = "0.8"
-sqlx = "0.3"
+sqlx = {version = "0.3", features = ["runtime-tokio", "macros"]}
 dotenv = "0.15"

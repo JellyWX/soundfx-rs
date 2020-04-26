@@ -15,6 +15,7 @@ dependencies = [
  "async-std",
  "native-tls",
  "thiserror",
+ "tokio",
  "url",
 ]
 
@@ -1425,6 +1426,7 @@ dependencies = [
  "log",
  "memchr",
  "percent-encoding",
+ "tokio",
  "url",
 ]
 
@@ -1437,10 +1439,12 @@ dependencies = [
  "async-std",
  "dotenv",
  "futures",
+ "lazy_static",
  "proc-macro2",
  "quote",
  "sqlx-core",
  "syn",
+ "tokio",
  "url",
 ]
 
