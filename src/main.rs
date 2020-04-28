@@ -15,7 +15,10 @@ use serenity::{
     model::{
         channel::Message
     },
-    prelude::*,
+    prelude::{
+        Mutex as SerenityMutex,
+        *
+    },
     voice::ffmpeg,
 };
 
@@ -38,6 +41,7 @@ use std::{
     path::Path,
     sync::Arc,
 };
+use serenity::model::guild::Guild;
 
 struct SQLPool;
 
@@ -48,17 +52,80 @@ impl TypeMapKey for SQLPool {
 struct VoiceManager;
 
 impl TypeMapKey for VoiceManager {
-    type Value = Arc<Mutex<ClientVoiceManager>>;
+    type Value = Arc<SerenityMutex<ClientVoiceManager>>;
 }
 
+static THEME_COLOR: u32 = 0x00e0f3;
+
 #[group]
-#[commands(play)]
+#[commands(play, info, )]
 struct General;
 
 struct Sound {
     name: String,
     id: u32,
     src: Vec<u8>,
+}
+
+struct GuildData {
+    id: u64,
+    name: Option<String>,
+    prefix: String,
+    volume: u8,
+}
+
+impl GuildData {
+    async fn get_from_id(guild_id: u64, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+        let guild = sqlx::query_as!(
+            GuildData,
+            "
+SELECT *
+FROM servers
+WHERE id = ?
+            ", guild_id
+        )
+            .fetch_one(&db_pool)
+            .await?;
+
+        Ok(guild)
+    }
+
+    async fn create_from_id(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+        let guild_data = sqlx::query!(
+            "
+INSERT INTO servers (id, name)
+VALUES (?, ?)
+            ", guild.id.as_u64(), guild.name
+        )
+            .execute(&db_pool)
+            .await?;
+
+        Ok(GuildData {
+            id: *guild.id.as_u64(),
+            name: Some(guild.name),
+            prefix: String::from("?"),
+            volume: 100,
+        })
+    }
+
+    async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query!(
+            "
+UPDATE servers
+SET
+    name = ?,
+    prefix = ?,
+    volume = ?
+WHERE
+    id = ?
+            ",
+            self.name, self.prefix, self.volume, self.id
+        )
+            .execute(&db_pool)
+            .await?;
+
+        Ok(())
+    }
 }
 
 // create event handler for bot
@@ -73,7 +140,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
 
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("?"))
+        .configure(|c| c.dynamic_prefix(|ctx, msg| Box::pin(async move {
+            let pool = ctx.data.read().await
+                .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+            match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
+                Ok(guild) => Some(guild.prefix),
+
+                Err(_) => Some(String::from("?"))
+            }
+        })))
         .group(&GENERAL_GROUP);
 
     let mut client = Client::new_with_extras(
@@ -98,20 +174,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn search_for_sound(query: &str, db_pool: MySqlPool) -> Result<Sound, Box<dyn std::error::Error>> {
+async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<Sound, sqlx::Error> {
 
-    if query.to_lowercase().starts_with("id:") {
-        let id = query[3..].parse::<u32>()?;
+    fn extract_id(s: &str) -> Option<u32> {
+        if s.to_lowercase().starts_with("id:") {
+            match s[3..].parse::<u32>() {
+                Ok(id) => Some(id),
 
+                Err(_) => None
+            }
+        }
+        else {
+            None
+        }
+    }
+
+    if let Some(id) = extract_id(&query[3..]) {
         let sound = sqlx::query_as_unchecked!(
             Sound,
             "
 SELECT id, name, src
     FROM sounds
-    WHERE id = ?
+    WHERE id = ? AND (
+        public = 1 OR
+        uploader_id = ? OR
+        server_id = ?
+    )
     LIMIT 1
             ",
-            id
+            id, user_id, guild_id
         )
             .fetch_one(&db_pool)
             .await?;
@@ -126,11 +217,15 @@ SELECT id, name, src
             "
 SELECT id, name, src
     FROM sounds
-    WHERE name = ?
-    ORDER BY rand()
+    WHERE name = ? AND (
+        public = 1 OR
+        uploader_id = ? OR
+        server_id = ?
+    )
+    ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
     LIMIT 1
             ",
-            name
+            name, user_id, guild_id, guild_id, user_id
         )
             .fetch_one(&db_pool)
             .await?;
@@ -179,32 +274,44 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
             let pool = ctx.data.read().await
                 .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-            let sound = search_for_sound(search_term, pool).await?;
+            let sound_res = search_for_sound(
+                search_term,
+                *guild_id.as_u64(),
+                *msg.author.id.as_u64(),
+                pool).await;
 
-            let fp = store_sound_source(&sound).await?;
+            match sound_res {
+                Ok(sound) => {
+                    let fp = store_sound_source(&sound).await?;
 
-            let voice_manager_lock = ctx.data.read().await
-                .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
+                    let voice_manager_lock = ctx.data.read().await
+                        .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
 
-            let mut voice_manager = voice_manager_lock.lock().await;
+                    let mut voice_manager = voice_manager_lock.lock().await;
 
-            match voice_manager.get_mut(guild_id) {
-                Some(handler) => {
-                    // play sound
-                    handler.play(ffmpeg(fp).await?);
-                }
-
-                None => {
-                    // try & join a voice channel
-                    match voice_manager.join(guild_id, user_channel) {
+                    match voice_manager.get_mut(guild_id) {
                         Some(handler) => {
+                            // play sound
                             handler.play(ffmpeg(fp).await?);
                         }
 
                         None => {
-                            msg.channel_id.say(&ctx, "Failed to join channel").await?;
+                            // try & join a voice channel
+                            match voice_manager.join(guild_id, user_channel) {
+                                Some(handler) => {
+                                    handler.play(ffmpeg(fp).await?);
+                                }
+
+                                None => {
+                                    msg.channel_id.say(&ctx, "Failed to join channel").await?;
+                                }
+                            };
                         }
-                    };
+                    }
+                }
+
+                Err(_) => {
+                    msg.channel_id.say(&ctx, "Couldn't find sound by term provided").await?;
                 }
             }
         }
@@ -213,6 +320,41 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
             msg.channel_id.say(&ctx, "You are not in a voice chat!").await?;
         }
     }
+
+    Ok(())
+}
+
+#[command]
+async fn help(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
+    msg.channel_id.send_message(&ctx, |m| m
+        .embed(|e| e
+            .title("Help")
+            .color(THEME_COLOR)
+            .description("Please visit our website at https://soundfx.jellywx.com/help"))).await?;
+
+    Ok(())
+}
+
+#[command]
+async fn info(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
+
+
+    msg.channel_id.send_message(&ctx, |m| m
+        .embed(|e| e
+            .title("Info")
+            .color(THEME_COLOR)
+            .description("Default prefix: `?`
+
+Reset prefix: `@SoundFX prefix ?`
+
+Invite me: https://discordapp.com/oauth2/authorize?client_id=430384808200372245&scope=bot&permissions=36703232
+
+**Welcome to SoundFX!**
+Developer: <@203532103185465344>
+Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
+
+**An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
+There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx"))).await?;
 
     Ok(())
 }
