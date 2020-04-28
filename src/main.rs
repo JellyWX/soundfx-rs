@@ -59,7 +59,7 @@ impl TypeMapKey for VoiceManager {
 static THEME_COLOR: u32 = 0x00e0f3;
 
 #[group]
-#[commands(play, info, help, change_volume, )]
+#[commands(play, info, help, change_volume, change_prefix)]
 struct General;
 
 struct Sound {
@@ -406,6 +406,58 @@ async fn change_volume(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
         msg.channel_id.say(&ctx,
                            format!("Current server volume: {vol}%. Change the volume with ```{prefix}volume <new volume>```",
                                    vol = guild_data.volume, prefix = guild_data.prefix)).await?;
+    }
+
+    Ok(())
+}
+
+#[command("prefix")]
+async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+    let guild = match msg.guild(&ctx.cache).await {
+        Some(guild) => guild,
+
+        None => {
+            return Ok(());
+        }
+    };
+
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let mut guild_data;
+
+    {
+        let mut guild_data_opt = GuildData::get_from_id(*guild.read().await.id.as_u64(), pool.clone()).await;
+
+        if guild_data_opt.is_none() {
+            guild_data_opt = Some(GuildData::create_from_guild(guild.read().await, pool.clone()).await.unwrap())
+        }
+
+        guild_data = guild_data_opt.unwrap();
+    }
+
+    if args.len() == 1 {
+        match args.single::<String>() {
+            Ok(prefix) => {
+                if prefix.len() <= 5 {
+                    guild_data.prefix = prefix;
+
+                    guild_data.commit(pool).await?;
+
+                    msg.channel_id.say(&ctx, format!("Prefix changed to `{}`", guild_data.prefix)).await?;
+                }
+                else {
+                    msg.channel_id.say(&ctx, "Prefix must be less than 5 characters long").await?;
+                }
+            }
+
+            Err(_) => {
+                msg.channel_id.say(&ctx, format!("Usage: `{prefix}prefix <new prefix>`", prefix = guild_data.prefix)).await?;
+            }
+        }
+    }
+    else {
+        msg.channel_id.say(&ctx, format!("Usage: `{prefix}prefix <new prefix>`", prefix = guild_data.prefix)).await?;
     }
 
     Ok(())
