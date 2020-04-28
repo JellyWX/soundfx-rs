@@ -42,6 +42,7 @@ use std::{
     sync::Arc,
 };
 use serenity::model::guild::Guild;
+use tokio::sync::RwLockReadGuard;
 
 struct SQLPool;
 
@@ -58,7 +59,7 @@ impl TypeMapKey for VoiceManager {
 static THEME_COLOR: u32 = 0x00e0f3;
 
 #[group]
-#[commands(play, info, )]
+#[commands(play, info, help, change_volume, )]
 struct General;
 
 struct Sound {
@@ -69,13 +70,13 @@ struct Sound {
 
 struct GuildData {
     id: u64,
-    name: Option<String>,
-    prefix: String,
-    volume: u8,
+    pub name: Option<String>,
+    pub prefix: String,
+    pub volume: u8,
 }
 
 impl GuildData {
-    async fn get_from_id(guild_id: u64, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+    async fn get_from_id(guild_id: u64, db_pool: MySqlPool) -> Option<GuildData> {
         let guild = sqlx::query_as!(
             GuildData,
             "
@@ -85,12 +86,16 @@ WHERE id = ?
             ", guild_id
         )
             .fetch_one(&db_pool)
-            .await?;
+            .await;
 
-        Ok(guild)
+        match guild {
+            Ok(guild) => Some(guild),
+
+            Err(_) => None,
+        }
     }
 
-    async fn create_from_id(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+    async fn create_from_guild(guild: RwLockReadGuard<'_, Guild>, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
         let guild_data = sqlx::query!(
             "
 INSERT INTO servers (id, name)
@@ -102,7 +107,7 @@ VALUES (?, ?)
 
         Ok(GuildData {
             id: *guild.id.as_u64(),
-            name: Some(guild.name),
+            name: Some(guild.name.clone()),
             prefix: String::from("?"),
             volume: 100,
         })
@@ -145,9 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
             match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
-                Ok(guild) => Some(guild.prefix),
+                Some(guild) => Some(guild.prefix),
 
-                Err(_) => Some(String::from("?"))
+                None => Some(String::from("?"))
             }
         })))
         .group(&GENERAL_GROUP);
@@ -251,7 +256,8 @@ async fn store_sound_source(sound: &Sound) -> Result<String, Box<dyn std::error:
     Ok(path_name)
 }
 
-#[command]
+#[command("play")]
+#[aliases("p")]
 async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -338,7 +344,6 @@ async fn help(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
 #[command]
 async fn info(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
 
-
     msg.channel_id.send_message(&ctx, |m| m
         .embed(|e| e
             .title("Info")
@@ -355,6 +360,53 @@ Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
 There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx"))).await?;
+
+    Ok(())
+}
+
+#[command("volume")]
+async fn change_volume(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+    let guild = match msg.guild(&ctx.cache).await {
+        Some(guild) => guild,
+
+        None => {
+            return Ok(());
+        }
+    };
+
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let mut guild_data_opt = GuildData::get_from_id(*guild.read().await.id.as_u64(), pool.clone()).await;
+
+    if guild_data_opt.is_none() {
+        guild_data_opt = Some(GuildData::create_from_guild(guild.read().await, pool.clone()).await.unwrap())
+    }
+
+    let mut guild_data = guild_data_opt.unwrap();
+
+    if args.len() == 1 {
+        match args.single::<u8>() {
+            Ok(volume) => {
+                guild_data.volume = volume;
+
+                guild_data.commit(pool).await?;
+
+                msg.channel_id.say(&ctx, format!("Volume changed to {}%", volume)).await?;
+            }
+
+            Err(_) => {
+                msg.channel_id.say(&ctx,
+                                   format!("Current server volume: {vol}%. Change the volume with ```{prefix}volume <new volume>```",
+                                           vol = guild_data.volume, prefix = guild_data.prefix)).await?;
+            }
+        }
+    }
+    else {
+        msg.channel_id.say(&ctx,
+                           format!("Current server volume: {vol}%. Change the volume with ```{prefix}volume <new volume>```",
+                                   vol = guild_data.volume, prefix = guild_data.prefix)).await?;
+    }
 
     Ok(())
 }
