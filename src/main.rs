@@ -13,7 +13,8 @@ use serenity::{
         }
     },
     model::{
-        channel::Message
+        channel::Message,
+        guild::Guild,
     },
     prelude::{
         Mutex as SerenityMutex,
@@ -34,15 +35,18 @@ use dotenv::dotenv;
 
 use tokio::{
     fs::File,
+    process::Command,
+    sync::RwLockReadGuard,
 };
 
 use std::{
     env,
     path::Path,
     sync::Arc,
+    time::Duration,
 };
-use serenity::model::guild::Guild;
-use tokio::sync::RwLockReadGuard;
+use std::fmt::Formatter;
+
 
 struct SQLPool;
 
@@ -59,13 +63,179 @@ impl TypeMapKey for VoiceManager {
 static THEME_COLOR: u32 = 0x00e0f3;
 
 #[group]
-#[commands(play, info, help, change_volume, change_prefix)]
+#[commands(play, info, help, change_volume, change_prefix, upload_new_sound)]
 struct General;
 
 struct Sound {
     name: String,
     id: u32,
+    plays: u32,
+    public: bool,
+    server_id: u64,
+    uploader_id: u64,
     src: Vec<u8>,
+}
+
+#[derive(Debug)]
+enum ErrorTypes {
+    InvalidFile,
+}
+
+impl std::error::Error for ErrorTypes {}
+impl std::fmt::Display for ErrorTypes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ErrorTypes")
+    }
+}
+
+impl Sound {
+    async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<Sound, sqlx::Error> {
+
+        fn extract_id(s: &str) -> Option<u32> {
+            if s.to_lowercase().starts_with("id:") {
+                match s[3..].parse::<u32>() {
+                    Ok(id) => Some(id),
+
+                    Err(_) => None
+                }
+            }
+            else {
+                None
+            }
+        }
+
+        if let Some(id) = extract_id(&query[3..]) {
+            let sound = sqlx::query_as_unchecked!(
+                Self,
+                "
+SELECT *
+    FROM sounds
+    WHERE id = ? AND (
+        public = 1 OR
+        uploader_id = ? OR
+        server_id = ?
+    )
+    LIMIT 1
+                ",
+                id, user_id, guild_id
+            )
+                .fetch_one(&db_pool)
+                .await?;
+
+            Ok(sound)
+        }
+        else {
+            let name = query;
+
+            let sound = sqlx::query_as_unchecked!(
+                Self,
+                "
+SELECT *
+    FROM sounds
+    WHERE name = ? AND (
+        public = 1 OR
+        uploader_id = ? OR
+        server_id = ?
+    )
+    ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
+    LIMIT 1
+                ",
+                name, user_id, guild_id, guild_id, user_id
+            )
+                .fetch_one(&db_pool)
+                .await?;
+
+            Ok(sound)
+        }
+    }
+
+    async fn store_sound_source(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
+
+        let path_name = format!("{}/sound-{}", caching_location, self.id);
+        let path = Path::new(&path_name);
+
+        if !path.exists() {
+            use tokio::prelude::*;
+
+            let mut file = File::create(&path).await?;
+
+            file.write_all(self.src.as_ref()).await?;
+        }
+
+        Ok(path_name)
+    }
+
+    async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query!(
+            "
+UPDATE sounds
+SET
+    plays = ?,
+    public = ?
+WHERE
+    id = ?
+            ",
+            self.plays, self.public, self.id
+        )
+            .execute(&db_pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn create_anon(name: &str, src_url: &str, server_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<u64, Box<dyn std::error::Error + Send>> {
+        async fn process_src(src_url: &str) -> Option<Vec<u8>> {
+            let future = Command::new("ffmpeg")
+                .arg("-i")
+                .arg(src_url)
+                .arg("-loglevel")
+                .arg("error")
+                .arg("-b:a")
+                .arg("28000")
+                .arg("-f")
+                .arg("opus")
+                .arg("pipe:1")
+                .output();
+
+            let output = future.await;
+
+            match output {
+                Ok(out) => {
+                    if out.status.success() && out.stdout.len() < 1024 * 1024 {
+                        Some(out.stdout)
+                    }
+                    else {
+                        None
+                    }
+                }
+
+                Err(_) => None,
+            }
+        }
+
+        let source = process_src(src_url).await;
+
+        match source {
+            Some(data) => {
+                match sqlx::query!(
+                "
+INSERT INTO sounds (name, server_id, uploader_id, public, src)
+VALUES (?, ?, ?, 1, ?)
+                ",
+                name, server_id, user_id, data
+                )
+                    .execute(&db_pool)
+                    .await {
+                    Ok(u) => Ok(u),
+
+                    Err(e) => Err(Box::new(e))
+                }
+            }
+
+            None => Err(Box::new(ErrorTypes::InvalidFile))
+        }
+    }
 }
 
 struct GuildData {
@@ -179,83 +349,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<Sound, sqlx::Error> {
-
-    fn extract_id(s: &str) -> Option<u32> {
-        if s.to_lowercase().starts_with("id:") {
-            match s[3..].parse::<u32>() {
-                Ok(id) => Some(id),
-
-                Err(_) => None
-            }
-        }
-        else {
-            None
-        }
-    }
-
-    if let Some(id) = extract_id(&query[3..]) {
-        let sound = sqlx::query_as_unchecked!(
-            Sound,
-            "
-SELECT id, name, src
-    FROM sounds
-    WHERE id = ? AND (
-        public = 1 OR
-        uploader_id = ? OR
-        server_id = ?
-    )
-    LIMIT 1
-            ",
-            id, user_id, guild_id
-        )
-            .fetch_one(&db_pool)
-            .await?;
-
-        Ok(sound)
-    }
-    else {
-        let name = query;
-
-        let sound = sqlx::query_as_unchecked!(
-            Sound,
-            "
-SELECT id, name, src
-    FROM sounds
-    WHERE name = ? AND (
-        public = 1 OR
-        uploader_id = ? OR
-        server_id = ?
-    )
-    ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
-    LIMIT 1
-            ",
-            name, user_id, guild_id, guild_id, user_id
-        )
-            .fetch_one(&db_pool)
-            .await?;
-
-        Ok(sound)
-    }
-}
-
-async fn store_sound_source(sound: &Sound) -> Result<String, Box<dyn std::error::Error>> {
-    let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
-
-    let path_name = format!("{}/sound-{}", caching_location, sound.id);
-    let path = Path::new(&path_name);
-
-    if !path.exists() {
-        use tokio::prelude::*;
-
-        let mut file = File::create(&path).await?;
-
-        file.write_all(sound.src.as_ref()).await?;
-    }
-
-    Ok(path_name)
-}
-
 #[command("play")]
 #[aliases("p")]
 async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
@@ -280,7 +373,7 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
             let pool = ctx.data.read().await
                 .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-            let sound_res = search_for_sound(
+            let sound_res = Sound::search_for_sound(
                 search_term,
                 *guild_id.as_u64(),
                 *msg.author.id.as_u64(),
@@ -288,7 +381,7 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
 
             match sound_res {
                 Ok(sound) => {
-                    let fp = store_sound_source(&sound).await?;
+                    let fp = sound.store_sound_source().await?;
 
                     let voice_manager_lock = ctx.data.read().await
                         .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
@@ -458,6 +551,60 @@ async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
     }
     else {
         msg.channel_id.say(&ctx, format!("Usage: `{prefix}prefix <new prefix>`", prefix = guild_data.prefix)).await?;
+    }
+
+    Ok(())
+}
+
+#[command("upload")]
+async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+    let new_name = args.rest();
+
+    if !new_name.is_empty() && new_name.len() <= 20 {
+        // need to check how many sounds user currently has
+
+        // need to check if user is patreon or nah
+
+        msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size:").await?;
+
+        let reply = msg.channel_id.await_reply(&ctx)
+            .author_id(msg.author.id)
+            .timeout(Duration::from_secs(30))
+            .await;
+
+        match reply {
+            Some(reply_msg) => {
+                let pool = ctx.data.read().await
+                    .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+                if reply_msg.attachments.len() == 1 {
+                    match Sound::create_anon(
+                        new_name,
+                        &reply_msg.attachments[0].url,
+                        *msg.guild_id.unwrap().as_u64(),
+                        *msg.author.id.as_u64(),
+                        pool).await {
+                        Ok(_) => {
+                            msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                        }
+
+                        Err(_) => {
+                            msg.channel_id.say(&ctx, "Sound failed to upload. Size may be too large").await?;
+                        }
+                    }
+                }
+                else {
+                    msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
+                }
+            }
+
+            None => {
+                msg.channel_id.say(&ctx, "Upload timed out. Please redo the command").await?;
+            }
+        }
+    }
+    else {
+        msg.channel_id.say(&ctx, "Usage: `?upload <name>`. Please ensure the name provided is less than 20 characters in length").await?;
     }
 
     Ok(())

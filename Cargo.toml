@@ -5,7 +5,7 @@ authors = ["jude-lafitteIII <judewrs@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serenity = {path = "/home/jude/serenity", features = ["voice"]}
+serenity = {path = "/home/jude/serenity", features = ["voice", "collector"]}
 sqlx = {version = "0.3", default-features = false, features = ["runtime-tokio", "macros", "mysql", "bigdecimal"]}
 dotenv = "0.15"
-tokio = {version = "0.2.19", features = ["fs", "sync"]}
+tokio = {version = "0.2.19", features = ["fs", "sync", "process"]}
