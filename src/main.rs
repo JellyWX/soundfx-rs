@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 use serenity::{
     client::{
         bridge::{
@@ -61,6 +64,13 @@ impl TypeMapKey for VoiceManager {
 }
 
 static THEME_COLOR: u32 = 0x00e0f3;
+
+lazy_static! {
+    static ref MAX_SOUNDS: u32 = {
+        dotenv().unwrap();
+        env::var("MAX_SOUNDS").unwrap().parse::<u32>().unwrap()
+    };
+}
 
 #[group]
 #[commands(play, info, help, change_volume, change_prefix, upload_new_sound)]
@@ -182,6 +192,21 @@ WHERE
             .await?;
 
         Ok(())
+    }
+
+    async fn count_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
+        let c = sqlx::query!(
+        "
+SELECT COUNT(1) as count
+    FROM sounds
+    WHERE uploader_id = ?
+        ",
+        user_id
+        )
+            .fetch_one(&db_pool)
+            .await?.count;
+
+        Ok(c as u32)
     }
 
     async fn create_anon(name: &str, src_url: &str, server_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<u64, Box<dyn std::error::Error + Send>> {
@@ -561,9 +586,16 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> C
     let new_name = args.rest();
 
     if !new_name.is_empty() && new_name.len() <= 20 {
+        let pool = ctx.data.read().await
+            .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
         // need to check how many sounds user currently has
+        let count = Sound::count_user_sounds(*msg.author.id.as_u64(), pool.clone()).await?;
 
         // need to check if user is patreon or nah
+        if count >= *MAX_SOUNDS {
+
+        }
 
         msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size:").await?;
 
@@ -574,9 +606,6 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> C
 
         match reply {
             Some(reply_msg) => {
-                let pool = ctx.data.read().await
-                    .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
-
                 if reply_msg.attachments.len() == 1 {
                     match Sound::create_anon(
                         new_name,
@@ -609,3 +638,4 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> C
 
     Ok(())
 }
+

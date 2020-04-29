@@ -1338,6 +1338,7 @@ name = "soundfx-rs"
 version = "0.1.0"
 dependencies = [
  "dotenv",
+ "lazy_static",
  "serenity",
  "sqlx",
  "tokio",
