@@ -16,6 +16,10 @@ use serenity::{
         }
     },
     model::{
+        id::{
+            GuildId,
+            RoleId,
+        },
         channel::Message,
         guild::Guild,
     },
@@ -69,6 +73,16 @@ lazy_static! {
     static ref MAX_SOUNDS: u32 = {
         dotenv().unwrap();
         env::var("MAX_SOUNDS").unwrap().parse::<u32>().unwrap()
+    };
+
+    static ref PATREON_GUILD: u64 = {
+        dotenv().unwrap();
+        env::var("PATREON_GUILD").unwrap().parse::<u64>().unwrap()
+    };
+
+    static ref PATREON_ROLE: u64 = {
+        dotenv().unwrap();
+        env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap()
     };
 }
 
@@ -591,45 +605,57 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> C
 
         // need to check how many sounds user currently has
         let count = Sound::count_user_sounds(*msg.author.id.as_u64(), pool.clone()).await?;
+        let mut permit_upload = true;
 
         // need to check if user is patreon or nah
         if count >= *MAX_SOUNDS {
+            let patreon_guild_member = GuildId(*PATREON_GUILD).member(&ctx, msg.author.id).await?;
 
+            if patreon_guild_member.roles.contains(&RoleId(*PATREON_ROLE)) {
+                permit_upload = true;
+            }
+            else {
+                permit_upload = false;
+            }
         }
 
-        msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size:").await?;
+        if permit_upload {
+            msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size:").await?;
 
-        let reply = msg.channel_id.await_reply(&ctx)
-            .author_id(msg.author.id)
-            .timeout(Duration::from_secs(30))
-            .await;
+            let reply = msg.channel_id.await_reply(&ctx)
+                .author_id(msg.author.id)
+                .timeout(Duration::from_secs(30))
+                .await;
 
-        match reply {
-            Some(reply_msg) => {
-                if reply_msg.attachments.len() == 1 {
-                    match Sound::create_anon(
-                        new_name,
-                        &reply_msg.attachments[0].url,
-                        *msg.guild_id.unwrap().as_u64(),
-                        *msg.author.id.as_u64(),
-                        pool).await {
-                        Ok(_) => {
-                            msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+            match reply {
+                Some(reply_msg) => {
+                    if reply_msg.attachments.len() == 1 {
+                        match Sound::create_anon(
+                            new_name,
+                            &reply_msg.attachments[0].url,
+                            *msg.guild_id.unwrap().as_u64(),
+                            *msg.author.id.as_u64(),
+                            pool).await {
+                            Ok(_) => {
+                                msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                            }
+
+                            Err(_) => {
+                                msg.channel_id.say(&ctx, "Sound failed to upload. Size may be too large").await?;
+                            }
                         }
-
-                        Err(_) => {
-                            msg.channel_id.say(&ctx, "Sound failed to upload. Size may be too large").await?;
-                        }
+                    } else {
+                        msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
                     }
                 }
-                else {
-                    msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
+
+                None => {
+                    msg.channel_id.say(&ctx, "Upload timed out. Please redo the command").await?;
                 }
             }
-
-            None => {
-                msg.channel_id.say(&ctx, "Upload timed out. Please redo the command").await?;
-            }
+        }
+        else {
+            msg.channel_id.say(&ctx, "You have reached the maximum number of sounds ({}). Either delete some with `{}delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**").await?;
         }
     }
     else {
