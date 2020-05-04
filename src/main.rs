@@ -359,6 +359,34 @@ VALUES (?, ?, ?, 1, ?)
             None => Err(Box::new(ErrorTypes::InvalidFile))
         }
     }
+
+    async fn get_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error>> {
+        let sounds = sqlx::query_as_unchecked!(
+            Sound,
+            "
+SELECT *
+    FROM sounds
+    WHERE uploader_id = ?
+            ",
+            user_id
+        ).fetch_all(&db_pool).await?;
+
+        Ok(sounds)
+    }
+
+    async fn get_guild_sounds(guild_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error>> {
+        let sounds = sqlx::query_as_unchecked!(
+            Sound,
+            "
+SELECT *
+    FROM sounds
+    WHERE server_id = ?
+            ",
+            guild_id
+        ).fetch_all(&db_pool).await?;
+
+        Ok(sounds)
+    }
 }
 
 struct GuildData {
@@ -792,6 +820,23 @@ INSERT INTO roles (guild_id, role)
         else {
             msg.channel_id.say(&ctx, "Role whitelisting disabled").await?;
         }
+    }
+
+    Ok(())
+}
+
+#[command]
+async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+            .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let sounds;
+
+    if args.rest() == "me" {
+        sounds = Sound::get_user_sounds(*msg.author.id.as_u64(), pool).await?;
+    }
+    else {
+        sounds = Sound::get_guild_sounds(*msg.guild_id.unwrap().as_u64(), pool).await?;
     }
 
     Ok(())
