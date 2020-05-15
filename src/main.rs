@@ -87,7 +87,7 @@ lazy_static! {
 }
 
 #[group]
-#[commands(info, help)]
+#[commands(info, help, list_sounds)]
 struct AllUsers;
 
 #[group]
@@ -825,18 +825,39 @@ INSERT INTO roles (guild_id, role)
     Ok(())
 }
 
-#[command]
+#[command("list")]
 async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx.data.read().await
-            .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
     let sounds;
+    let mut message_buffer;
 
     if args.rest() == "me" {
         sounds = Sound::get_user_sounds(*msg.author.id.as_u64(), pool).await?;
+
+        message_buffer = "All your sounds: ".to_string();
     }
     else {
         sounds = Sound::get_guild_sounds(*msg.guild_id.unwrap().as_u64(), pool).await?;
+
+        message_buffer = "All sounds on this server: ".to_string();
+    }
+
+    for sound in sounds {
+        message_buffer.push_str(format!("**{}** ({}), ", sound.name, if sound.public { "🔓" } else { "🔒" }).as_str());
+
+        if message_buffer.len() > 2000 {
+            // send message
+            msg.channel_id.say(&ctx, message_buffer).await?;
+
+            message_buffer = "".to_string();
+        }
+    }
+
+    if message_buffer.len() > 0 {
+        // send message
+        msg.channel_id.say(&ctx, message_buffer).await?;
     }
 
     Ok(())
