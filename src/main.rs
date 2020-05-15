@@ -87,7 +87,7 @@ lazy_static! {
 }
 
 #[group]
-#[commands(info, help, list_sounds)]
+#[commands(info, help, list_sounds, change_public)]
 struct AllUsers;
 
 #[group]
@@ -298,6 +298,23 @@ SELECT COUNT(1) as count
     WHERE uploader_id = ?
         ",
         user_id
+        )
+            .fetch_one(&db_pool)
+            .await?.count;
+
+        Ok(c as u32)
+    }
+
+    async fn count_named_user_sounds(user_id: u64, name: &String, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
+        let c = sqlx::query!(
+        "
+SELECT COUNT(1) as count
+    FROM sounds
+    WHERE
+        uploader_id = ? AND
+        name = ?
+        ",
+        user_id, name
         )
             .fetch_one(&db_pool)
             .await?.count;
@@ -711,70 +728,78 @@ async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
 
 #[command("upload")]
 async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
-    let new_name = args.rest();
+    let new_name = args.rest().to_string();
 
     if !new_name.is_empty() && new_name.len() <= 20 {
         let pool = ctx.data.read().await
             .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-        // need to check how many sounds user currently has
-        let count = Sound::count_user_sounds(*msg.author.id.as_u64(), pool.clone()).await?;
-        let mut permit_upload = true;
-
-        // need to check if user is patreon or nah
-        if count >= *MAX_SOUNDS {
-            let patreon_guild_member = GuildId(*PATREON_GUILD).member(&ctx, msg.author.id).await?;
-
-            if patreon_guild_member.roles.contains(&RoleId(*PATREON_ROLE)) {
-                permit_upload = true;
-            }
-            else {
-                permit_upload = false;
-            }
+        // need to check the name is not currently in use by the user
+        let count_name = Sound::count_named_user_sounds(*msg.author.id.as_u64(), &new_name, pool.clone()).await?;
+        if count_name > 0 {
+            msg.channel_id.say(&ctx, "You are already using that name. Please choose a unique name for your upload.").await?;
         }
 
-        if permit_upload {
-            msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
+        else {
+            // need to check how many sounds user currently has
+            let count = Sound::count_user_sounds(*msg.author.id.as_u64(), pool.clone()).await?;
+            let mut permit_upload = true;
 
-            let reply = msg.channel_id.await_reply(&ctx)
-                .author_id(msg.author.id)
-                .timeout(Duration::from_secs(30))
-                .await;
+            // need to check if user is patreon or nah
+            if count >= *MAX_SOUNDS {
+                let patreon_guild_member = GuildId(*PATREON_GUILD).member(&ctx, msg.author.id).await?;
 
-            match reply {
-                Some(reply_msg) => {
-                    if reply_msg.attachments.len() == 1 {
-                        match Sound::create_anon(
-                            new_name,
-                            &reply_msg.attachments[0].url,
-                            *msg.guild_id.unwrap().as_u64(),
-                            *msg.author.id.as_u64(),
-                            pool).await {
-                            Ok(_) => {
-                                msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                if patreon_guild_member.roles.contains(&RoleId(*PATREON_ROLE)) {
+                    permit_upload = true;
+                }
+                else {
+                    permit_upload = false;
+                }
+            }
+
+            if permit_upload {
+                msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
+
+                let reply = msg.channel_id.await_reply(&ctx)
+                    .author_id(msg.author.id)
+                    .timeout(Duration::from_secs(30))
+                    .await;
+
+                match reply {
+                    Some(reply_msg) => {
+                        if reply_msg.attachments.len() == 1 {
+                            match Sound::create_anon(
+                                &new_name,
+                                &reply_msg.attachments[0].url,
+                                *msg.guild_id.unwrap().as_u64(),
+                                *msg.author.id.as_u64(),
+                                pool).await {
+                                Ok(_) => {
+                                    msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                                }
+
+                                Err(_) => {
+                                    msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
+                                }
                             }
-
-                            Err(_) => {
-                                msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
-                            }
+                        } else {
+                            msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
                         }
-                    } else {
-                        msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
+                    }
+
+                    None => {
+                        msg.channel_id.say(&ctx, "Upload timed out. Please redo the command").await?;
                     }
                 }
-
-                None => {
-                    msg.channel_id.say(&ctx, "Upload timed out. Please redo the command").await?;
-                }
             }
-        }
-        else {
-            msg.channel_id.say(
-                &ctx,
-                format!(
-                    "You have reached the maximum number of sounds ({}). Either delete some with `?delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**",
-                    *MAX_SOUNDS,
-                )).await?;
+            else {
+                msg.channel_id.say(
+                    &ctx,
+                    format!(
+                        "You have reached the maximum number of sounds ({}). Either delete some with `?delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**",
+                        *MAX_SOUNDS,
+                    )).await?;
+            }
         }
     }
     else {
@@ -858,6 +883,49 @@ async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandRes
     if message_buffer.len() > 0 {
         // send message
         msg.channel_id.say(&ctx, message_buffer).await?;
+    }
+
+    Ok(())
+}
+
+#[command("public")]
+async fn change_public(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+    let sound_result;
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+    let uid = msg.author.id.as_u64();
+
+    {
+        let name = args.rest();
+        let gid = *msg.guild_id.unwrap().as_u64();
+
+        sound_result = Sound::search_for_sound(name, gid, *uid, pool.clone()).await;
+    }
+
+    match sound_result {
+        Ok(mut sound) => {
+            if sound.uploader_id != *uid {
+                msg.channel_id.say(&ctx, "You can only change the availability of sounds you have uploaded. Use `?list me` to view your sounds").await?;
+            }
+
+            else {
+                if sound.public {
+                    sound.public = false;
+
+                    msg.channel_id.say(&ctx, "Sound has been set to private 🔒").await?;
+                } else {
+                    sound.public = true;
+
+                    msg.channel_id.say(&ctx, "Sound has been set to public 🔓").await?;
+                }
+
+                sound.commit(pool).await?
+            }
+        }
+
+        Err(_) => {
+            msg.channel_id.say(&ctx, "Sound could not be found by that name.").await?;
+        }
     }
 
     Ok(())
