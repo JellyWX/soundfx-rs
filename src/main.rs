@@ -43,7 +43,6 @@ use dotenv::dotenv;
 use tokio::{
     fs::File,
     process::Command,
-    sync::RwLockReadGuard,
 };
 
 use std::{
@@ -87,7 +86,7 @@ lazy_static! {
 }
 
 #[group]
-#[commands(info, help, list_sounds, change_public)]
+#[commands(info, help, list_sounds, change_public, search_sounds)]
 struct AllUsers;
 
 #[group]
@@ -102,9 +101,9 @@ struct PermissionManagedUsers;
 
 #[check]
 #[name("role_check")]
-async fn role_check(ctx: &mut Context, msg: &Message, _args: &mut Args) -> CheckResult {
+async fn role_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
 
-    async fn check_for_roles(ctx: &&mut Context, msg: &&Message) -> Result<(), Box<dyn std::error::Error>> {
+    async fn check_for_roles(ctx: &&Context, msg: &&Message) -> Result<(), Box<dyn std::error::Error>> {
         let pool = ctx.data.read().await
             .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
@@ -153,7 +152,7 @@ SELECT COUNT(1) as count
 
 #[check]
 #[name("permission_check")]
-async fn permission_check(ctx: &mut Context, msg: &Message, _args: &mut Args) -> CheckResult {
+async fn permission_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
     perform_permission_check(ctx, &msg).await
 }
 
@@ -198,7 +197,7 @@ impl Sound {
     async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool, strict: bool) -> Result<Vec<Sound>, sqlx::Error> {
 
         fn extract_id(s: &str) -> Option<u32> {
-            if s.to_lowercase().starts_with("id:") {
+            if s.len() > 3 && s.to_lowercase().starts_with("id:") {
                 match s[3..].parse::<u32>() {
                     Ok(id) => Some(id),
 
@@ -210,7 +209,7 @@ impl Sound {
             }
         }
 
-        if let Some(id) = extract_id(&query[3..]) {
+        if let Some(id) = extract_id(&query) {
             let sound = sqlx::query_as_unchecked!(
                 Self,
                 "
@@ -468,7 +467,7 @@ WHERE id = ?
         }
     }
 
-    async fn create_from_guild(guild: RwLockReadGuard<'_, Guild>, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+    async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
         sqlx::query!(
             "
 INSERT INTO servers (id, name)
@@ -532,13 +531,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .group(&ROLEMANAGEDUSERS_GROUP)
         .group(&PERMISSIONMANAGEDUSERS_GROUP);
 
-    let mut client = Client::new_with_extras(
-        &env::var("DISCORD_TOKEN").expect("Missing token from environment"),
-        |extras| { extras
-            .framework(framework)
-            .event_handler(Handler)
-            .intents(GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILDS)
-        }).await.expect("Error occurred creating client");
+    let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
+        .intents(GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MESSAGES | GatewayIntents::GUILDS)
+        .framework(framework)
+        .event_handler(Handler)
+        .await.expect("Error occurred creating client");
 
     {
         let pool = MySqlPool::new(&env::var("DATABASE_URL").expect("No database URL provided")).await.unwrap();
@@ -556,7 +553,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[command("play")]
 #[aliases("p")]
-async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
 
@@ -565,9 +562,9 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
         }
     };
 
-    let guild_id = guild.read().await.id;
+    let guild_id = guild.id;
 
-    let channel_to_join = guild.read().await
+    let channel_to_join = guild
         .voice_states.get(&msg.author.id)
         .and_then(|voice_state| voice_state.channel_id);
 
@@ -578,14 +575,14 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
             let pool = ctx.data.read().await
                 .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-            let sound_vec = Sound::search_for_sound(
+            let mut sound_vec = Sound::search_for_sound(
                 search_term,
                 *guild_id.as_u64(),
                 *msg.author.id.as_u64(),
-                pool,
+                pool.clone(),
                 true).await?;
 
-            let sound_res = sound_vec.first();
+            let sound_res = sound_vec.first_mut();
 
             match sound_res {
                 Some(sound) => {
@@ -600,6 +597,9 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
                         Some(handler) => {
                             // play sound
                             handler.play(ffmpeg(fp).await?);
+
+                            sound.plays += 1;
+                            sound.commit(pool).await?;
                         }
 
                         None => {
@@ -607,6 +607,9 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
                             match voice_manager.join(guild_id, user_channel) {
                                 Some(handler) => {
                                     handler.play(ffmpeg(fp).await?);
+
+                                    sound.plays += 1;
+                                    sound.commit(pool).await?;
                                 }
 
                                 None => {
@@ -632,7 +635,7 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
 }
 
 #[command]
-async fn help(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
+async fn help(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     msg.channel_id.send_message(&ctx, |m| m
         .embed(|e| e
             .title("Help")
@@ -643,7 +646,7 @@ async fn help(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
 }
 
 #[command]
-async fn info(ctx: &mut Context, msg: &Message, _args: Args) -> CommandResult {
+async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 
     msg.channel_id.send_message(&ctx, |m| m
         .embed(|e| e
@@ -666,7 +669,7 @@ There is a maximum sound limit per user. This can be removed by donating at http
 }
 
 #[command("volume")]
-async fn change_volume(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
 
@@ -678,10 +681,10 @@ async fn change_volume(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-    let mut guild_data_opt = GuildData::get_from_id(*guild.read().await.id.as_u64(), pool.clone()).await;
+    let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
 
     if guild_data_opt.is_none() {
-        guild_data_opt = Some(GuildData::create_from_guild(guild.read().await, pool.clone()).await.unwrap())
+        guild_data_opt = Some(GuildData::create_from_guild(guild, pool.clone()).await.unwrap())
     }
 
     let mut guild_data = guild_data_opt.unwrap();
@@ -713,7 +716,7 @@ async fn change_volume(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
 }
 
 #[command("prefix")]
-async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
 
@@ -728,10 +731,10 @@ async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
     let mut guild_data;
 
     {
-        let mut guild_data_opt = GuildData::get_from_id(*guild.read().await.id.as_u64(), pool.clone()).await;
+        let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
 
         if guild_data_opt.is_none() {
-            guild_data_opt = Some(GuildData::create_from_guild(guild.read().await, pool.clone()).await.unwrap())
+            guild_data_opt = Some(GuildData::create_from_guild(guild, pool.clone()).await.unwrap())
         }
 
         guild_data = guild_data_opt.unwrap();
@@ -765,7 +768,7 @@ async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
 }
 
 #[command("upload")]
-async fn upload_new_sound(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let new_name = args.rest().to_string();
 
     if !new_name.is_empty() && new_name.len() <= 20 {
@@ -785,7 +788,7 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, args: Args) -> Comma
 
             // need to check if user is patreon or nah
             if count >= *MAX_SOUNDS {
-                let patreon_guild_member = GuildId(*PATREON_GUILD).member(&ctx, msg.author.id).await?;
+                let patreon_guild_member = GuildId(*PATREON_GUILD).member(ctx, msg.author.id).await?;
 
                 if patreon_guild_member.roles.contains(&RoleId(*PATREON_ROLE)) {
                     permit_upload = true;
@@ -848,7 +851,7 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, args: Args) -> Comma
 }
 
 #[command("roles")]
-async fn set_allowed_roles(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn set_allowed_roles(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     if args.len() == 0 {
         msg.channel_id.say(&ctx, "Usage: `?roles <role mentions or anything else to disable>`. Current roles: ").await?;
     }
@@ -889,7 +892,7 @@ INSERT INTO roles (guild_id, role)
 }
 
 #[command("list")]
-async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn list_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
@@ -925,7 +928,7 @@ async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandRes
 }
 
 #[command("public")]
-async fn change_public(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn change_public(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
     let uid = msg.author.id.as_u64();
@@ -966,7 +969,7 @@ async fn change_public(ctx: &mut Context, msg: &Message, args: Args) -> CommandR
 }
 
 #[command("delete")]
-async fn delete_sound(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
@@ -1000,7 +1003,35 @@ async fn delete_sound(ctx: &mut Context, msg: &Message, args: Args) -> CommandRe
 }
 
 #[command("search")]
-async fn search_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let query = args.rest();
+
+    let search_results = Sound::search_for_sound(query, *msg.guild_id.unwrap().as_u64(), *msg.author.id.as_u64(), pool, false).await?;
+
+    let mut current_character_count = 0;
+    let title = "Public sounds matching filter:";
+
+    let field_iter = search_results.iter().take(25).map(|item| {
+
+        (&item.name, format!("ID: {}\nPlays: {}", item.id, item.plays), false)
+
+    }).filter(|item| {
+
+        current_character_count += item.0.len() + item.1.len();
+
+        current_character_count <= 2048 - title.len()
+
+    });
+
+    msg.channel_id.send_message(&ctx, |m| {
+        m.embed(|e| { e
+                .title(title)
+                .fields(field_iter)
+        })
+    }).await?;
 
     Ok(())
 }

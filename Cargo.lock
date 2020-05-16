@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "serenity"
-version = "0.8.4"
+version = "0.8.6"
 dependencies = [
  "async-tls",
  "async-trait",
