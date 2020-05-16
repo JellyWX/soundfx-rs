@@ -96,7 +96,7 @@ struct AllUsers;
 struct RoleManagedUsers;
 
 #[group]
-#[commands(change_prefix)]
+#[commands(change_prefix, set_allowed_roles)]
 #[checks(permission_check)]
 struct PermissionManagedUsers;
 
@@ -195,7 +195,7 @@ impl std::fmt::Display for ErrorTypes {
 }
 
 impl Sound {
-    async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<Sound, sqlx::Error> {
+    async fn search_for_sound(query: &str, guild_id: u64, user_id: u64, db_pool: MySqlPool, strict: bool) -> Result<Vec<Sound>, sqlx::Error> {
 
         fn extract_id(s: &str) -> Option<u32> {
             if s.to_lowercase().starts_with("id:") {
@@ -221,21 +221,22 @@ SELECT *
         uploader_id = ? OR
         server_id = ?
     )
-    LIMIT 1
                 ",
                 id, user_id, guild_id
             )
-                .fetch_one(&db_pool)
+                .fetch_all(&db_pool)
                 .await?;
 
             Ok(sound)
         }
         else {
             let name = query;
+            let sound;
 
-            let sound = sqlx::query_as_unchecked!(
-                Self,
-                "
+            if strict {
+                sound = sqlx::query_as_unchecked!(
+                    Self,
+                    "
 SELECT *
     FROM sounds
     WHERE name = ? AND (
@@ -244,12 +245,31 @@ SELECT *
         server_id = ?
     )
     ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
-    LIMIT 1
-                ",
-                name, user_id, guild_id, guild_id, user_id
-            )
-                .fetch_one(&db_pool)
-                .await?;
+                    ",
+                    name, user_id, guild_id, guild_id, user_id
+                )
+                    .fetch_all(&db_pool)
+                    .await?;
+
+            }
+            else {
+                sound = sqlx::query_as_unchecked!(
+                    Self,
+                    "
+SELECT *
+    FROM sounds
+    WHERE name LIKE CONCAT('%', ?, '%') AND (
+        public = 1 OR
+        uploader_id = ? OR
+        server_id = ?
+    )
+    ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
+                    ",
+                    name, user_id, guild_id, guild_id, user_id
+                )
+                    .fetch_all(&db_pool)
+                    .await?;
+            }
 
             Ok(sound)
         }
@@ -283,6 +303,21 @@ WHERE
     id = ?
             ",
             self.plays, self.public, self.id
+        )
+            .execute(&db_pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn delete(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query!(
+            "
+DELETE
+    FROM sounds
+    WHERE id = ?
+            ",
+            self.id
         )
             .execute(&db_pool)
             .await?;
@@ -434,7 +469,7 @@ WHERE id = ?
     }
 
     async fn create_from_guild(guild: RwLockReadGuard<'_, Guild>, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
-        let guild_data = sqlx::query!(
+        sqlx::query!(
             "
 INSERT INTO servers (id, name)
 VALUES (?, ?)
@@ -543,14 +578,17 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
             let pool = ctx.data.read().await
                 .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-            let sound_res = Sound::search_for_sound(
+            let sound_vec = Sound::search_for_sound(
                 search_term,
                 *guild_id.as_u64(),
                 *msg.author.id.as_u64(),
-                pool).await;
+                pool,
+                true).await?;
+
+            let sound_res = sound_vec.first();
 
             match sound_res {
-                Ok(sound) => {
+                Some(sound) => {
                     let fp = sound.store_sound_source().await?;
 
                     let voice_manager_lock = ctx.data.read().await
@@ -579,7 +617,7 @@ async fn play(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
                     }
                 }
 
-                Err(_) => {
+                None => {
                     msg.channel_id.say(&ctx, "Couldn't find sound by term provided").await?;
                 }
             }
@@ -727,7 +765,7 @@ async fn change_prefix(ctx: &mut Context, msg: &Message, mut args: Args) -> Comm
 }
 
 #[command("upload")]
-async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn upload_new_sound(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
     let new_name = args.rest().to_string();
 
     if !new_name.is_empty() && new_name.len() <= 20 {
@@ -809,7 +847,7 @@ async fn upload_new_sound(ctx: &mut Context, msg: &Message, mut args: Args) -> C
     Ok(())
 }
 
-#[command]
+#[command("roles")]
 async fn set_allowed_roles(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
     if args.len() == 0 {
         msg.channel_id.say(&ctx, "Usage: `?roles <role mentions or anything else to disable>`. Current roles: ").await?;
@@ -873,7 +911,6 @@ async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandRes
         message_buffer.push_str(format!("**{}** ({}), ", sound.name, if sound.public { "🔓" } else { "🔒" }).as_str());
 
         if message_buffer.len() > 2000 {
-            // send message
             msg.channel_id.say(&ctx, message_buffer).await?;
 
             message_buffer = "".to_string();
@@ -881,7 +918,6 @@ async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandRes
     }
 
     if message_buffer.len() > 0 {
-        // send message
         msg.channel_id.say(&ctx, message_buffer).await?;
     }
 
@@ -890,20 +926,18 @@ async fn list_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandRes
 
 #[command("public")]
 async fn change_public(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
-    let sound_result;
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
     let uid = msg.author.id.as_u64();
 
-    {
-        let name = args.rest();
-        let gid = *msg.guild_id.unwrap().as_u64();
+    let name = args.rest();
+    let gid = *msg.guild_id.unwrap().as_u64();
 
-        sound_result = Sound::search_for_sound(name, gid, *uid, pool.clone()).await;
-    }
+    let mut sound_vec = Sound::search_for_sound(name, gid, *uid, pool.clone(), true).await?;
+    let sound_result = sound_vec.first_mut();
 
     match sound_result {
-        Ok(mut sound) => {
+        Some(sound) => {
             if sound.uploader_id != *uid {
                 msg.channel_id.say(&ctx, "You can only change the availability of sounds you have uploaded. Use `?list me` to view your sounds").await?;
             }
@@ -923,10 +957,50 @@ async fn change_public(ctx: &mut Context, msg: &Message, args: Args) -> CommandR
             }
         }
 
-        Err(_) => {
+        None => {
             msg.channel_id.say(&ctx, "Sound could not be found by that name.").await?;
         }
     }
+
+    Ok(())
+}
+
+#[command("delete")]
+async fn delete_sound(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let uid = *msg.author.id.as_u64();
+    let gid = *msg.guild_id.unwrap().as_u64();
+
+    let name = args.rest();
+
+    let sound_vec = Sound::search_for_sound(name, gid, uid, pool.clone(), true).await?;
+    let sound_result = sound_vec.first();
+
+    match sound_result {
+        Some(sound) => {
+            if sound.uploader_id != uid && sound.server_id != gid {
+                msg.channel_id.say(&ctx, "You can only delete sounds from this guild or that you have uploaded.").await?;
+            }
+
+            else {
+                sound.delete(pool).await?;
+
+                msg.channel_id.say(&ctx, "Sound has been deleted").await?;
+            }
+        }
+
+        None => {
+            msg.channel_id.say(&ctx, "Sound could not be found by that name.").await?;
+        }
+    }
+
+    Ok(())
+}
+
+#[command("search")]
+async fn search_sounds(ctx: &mut Context, msg: &Message, args: Args) -> CommandResult {
 
     Ok(())
 }
