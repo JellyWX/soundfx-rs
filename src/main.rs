@@ -27,7 +27,10 @@ use serenity::{
         Mutex as SerenityMutex,
         *
     },
-    voice::ffmpeg,
+    voice::{
+        ffmpeg,
+        pcm
+    },
 };
 
 use sqlx::{
@@ -42,10 +45,14 @@ use dotenv::dotenv;
 
 use tokio::{
     fs::File,
+    io::empty,
     process::Command,
+    sync::Mutex,
+    time,
 };
 
 use std::{
+    collections::HashSet,
     env,
     path::Path,
     sync::Arc,
@@ -64,6 +71,12 @@ struct VoiceManager;
 
 impl TypeMapKey for VoiceManager {
     type Value = Arc<SerenityMutex<ClientVoiceManager>>;
+}
+
+struct VoiceGuilds;
+
+impl TypeMapKey for VoiceGuilds {
+    type Value = Arc<Mutex<HashSet<GuildId>>>;
 }
 
 static THEME_COLOR: u32 = 0x00e0f3;
@@ -533,17 +546,26 @@ impl EventHandler for Handler {}
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
 
+    let voice_guilds = Arc::new(Mutex::new(HashSet::new()));
+
     let framework = StandardFramework::new()
-        .configure(|c| c.dynamic_prefix(|ctx, msg| Box::pin(async move {
-            let pool = ctx.data.read().await
-                .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+        .configure(|c| c
+            .dynamic_prefix(|ctx, msg| Box::pin(async move {
+                let pool = ctx.data.read().await
+                    .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-            match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
-                Some(guild) => Some(guild.prefix),
+                println!("dynamic_prefix: acquired pool and now about to query");
 
-                None => Some(String::from("?"))
-            }
-        })))
+                match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
+                    Some(guild) => Some(guild.prefix),
+
+                    None => Some(String::from("?"))
+                }
+            }))
+            .allow_dm(false)
+            .ignore_bots(true)
+            .ignore_webhooks(true)
+        )
         .group(&ALLUSERS_GROUP)
         .group(&ROLEMANAGEDUSERS_GROUP)
         .group(&PERMISSIONMANAGEDUSERS_GROUP);
@@ -561,11 +583,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data.insert::<SQLPool>(pool);
 
         data.insert::<VoiceManager>(Arc::clone(&client.voice_manager));
+
+        data.insert::<VoiceGuilds>(voice_guilds.clone());
     }
 
-    client.start().await?;
+    let cvm = Arc::clone(&client.voice_manager);
+
+    // select on the client and client auto disconnector (when the client terminates, terminate the disconnector
+    tokio::select! {
+        _ = client.start() => {}
+        _ = disconnect_from_inactive(cvm, voice_guilds) => {}
+    };
 
     Ok(())
+}
+
+async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashSet<GuildId>>>) {
+    loop {
+        let mut voice_guilds_acquired = voice_guilds.lock().await;
+        let mut voice_manager = voice_manager_mutex.lock().await;
+
+        let mut to_remove = HashSet::new();
+
+        for guild in voice_guilds_acquired.iter() {
+            let manager_opt = voice_manager.get_mut(guild);
+
+            if let Some(manager) = manager_opt {
+                let audio = manager.play_returning(pcm(false, empty()));
+
+                if !audio.lock().await.playing {
+                    manager.leave();
+                    to_remove.insert(guild.clone());
+                }
+            }
+        }
+
+        for val in to_remove.iter() {
+            voice_guilds_acquired.remove(val);
+        }
+
+        time::delay_for(Duration::from_secs(30)).await;
+    }
 }
 
 #[command("play")]
@@ -610,23 +668,32 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
                     let mut voice_manager = voice_manager_lock.lock().await;
 
+                    let voice_guilds_lock = ctx.data.read().await
+                        .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
+
+                    let mut voice_guilds = voice_guilds_lock.lock().await;
+
                     match voice_manager.get_mut(guild_id) {
                         Some(handler) => {
                             // play sound
-                            handler.play(ffmpeg(fp).await?);
+                            handler.play_only(ffmpeg(fp).await?);
 
                             sound.plays += 1;
                             sound.commit(pool).await?;
+
+                            voice_guilds.insert(guild_id);
                         }
 
                         None => {
                             // try & join a voice channel
                             match voice_manager.join(guild_id, user_channel) {
                                 Some(handler) => {
-                                    handler.play(ffmpeg(fp).await?);
+                                    handler.play_only(ffmpeg(fp).await?);
 
                                     sound.plays += 1;
                                     sound.commit(pool).await?;
+
+                                    voice_guilds.insert(guild_id);
                                 }
 
                                 None => {
@@ -1059,6 +1126,46 @@ async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResul
     Ok(())
 }
 
+#[command("popular")]
+async fn show_popular_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let search_results = sqlx::query_as_unchecked!(
+        Sound,
+        "
+SELECT * FROM sounds
+ORDER BY plays
+        "
+    )
+        .fetch_all(&pool)
+        .await?;
+
+    format_search_results(search_results, msg, ctx).await?;
+
+    Ok(())
+}
+
+#[command("random")]
+async fn show_random_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let search_results = sqlx::query_as_unchecked!(
+        Sound,
+        "
+SELECT * FROM sounds
+ORDER BY rand()
+        "
+    )
+        .fetch_all(&pool)
+        .await?;
+
+    format_search_results(search_results, msg, ctx).await?;
+
+    Ok(())
+}
+
 #[command("greet")]
 async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx.data.read().await
@@ -1102,10 +1209,3 @@ WHERE
 
     Ok(())
 }
-
-/*
-#[command("popular")]
-async fn show_popular_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-
-}
-*/
