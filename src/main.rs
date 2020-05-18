@@ -86,7 +86,7 @@ lazy_static! {
 }
 
 #[group]
-#[commands(info, help, list_sounds, change_public, search_sounds)]
+#[commands(info, help, list_sounds, change_public, search_sounds, set_greet_sound)]
 struct AllUsers;
 
 #[group]
@@ -291,6 +291,55 @@ SELECT *
         Ok(path_name)
     }
 
+        async fn count_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
+        let c = sqlx::query!(
+        "
+SELECT COUNT(1) as count
+    FROM sounds
+    WHERE uploader_id = ?
+        ",
+        user_id
+        )
+            .fetch_one(&db_pool)
+            .await?.count;
+
+        Ok(c as u32)
+    }
+
+    async fn count_named_user_sounds(user_id: u64, name: &String, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
+        let c = sqlx::query!(
+        "
+SELECT COUNT(1) as count
+    FROM sounds
+    WHERE
+        uploader_id = ? AND
+        name = ?
+        ",
+        user_id, name
+        )
+            .fetch_one(&db_pool)
+            .await?.count;
+
+        Ok(c as u32)
+    }
+
+    async fn set_as_greet(&self, user_id: u64, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query!(
+            "
+UPDATE users
+SET
+    join_sound_id = ?
+WHERE
+    user = ?
+            ",
+            self.id, user_id
+        )
+            .execute(&db_pool)
+            .await?;
+
+        Ok(())
+    }
+
     async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
         sqlx::query!(
             "
@@ -322,38 +371,6 @@ DELETE
             .await?;
 
         Ok(())
-    }
-
-    async fn count_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
-        let c = sqlx::query!(
-        "
-SELECT COUNT(1) as count
-    FROM sounds
-    WHERE uploader_id = ?
-        ",
-        user_id
-        )
-            .fetch_one(&db_pool)
-            .await?.count;
-
-        Ok(c as u32)
-    }
-
-    async fn count_named_user_sounds(user_id: u64, name: &String, db_pool: MySqlPool) -> Result<u32, sqlx::error::Error> {
-        let c = sqlx::query!(
-        "
-SELECT COUNT(1) as count
-    FROM sounds
-    WHERE
-        uploader_id = ? AND
-        name = ?
-        ",
-        user_id, name
-        )
-            .fetch_one(&db_pool)
-            .await?.count;
-
-        Ok(c as u32)
     }
 
     async fn create_anon(name: &str, src_url: &str, server_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<u64, Box<dyn std::error::Error + Send>> {
@@ -1002,15 +1019,7 @@ async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult
     Ok(())
 }
 
-#[command("search")]
-async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    let pool = ctx.data.read().await
-        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
-
-    let query = args.rest();
-
-    let search_results = Sound::search_for_sound(query, *msg.guild_id.unwrap().as_u64(), *msg.author.id.as_u64(), pool, false).await?;
-
+async fn format_search_results(search_results: Vec<Sound>, msg: &Message, ctx: &Context) -> Result<(), Box<dyn std::error::Error>> {
     let mut current_character_count = 0;
     let title = "Public sounds matching filter:";
 
@@ -1035,3 +1044,68 @@ async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResul
 
     Ok(())
 }
+
+#[command("search")]
+async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let query = args.rest();
+
+    let search_results = Sound::search_for_sound(query, *msg.guild_id.unwrap().as_u64(), *msg.author.id.as_u64(), pool, false).await?;
+
+    format_search_results(search_results, msg, ctx).await?;
+
+    Ok(())
+}
+
+#[command("greet")]
+async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+    let query = args.rest();
+    let user_id = *msg.author.id.as_u64();
+
+    if query.len() == 0 {
+        sqlx::query!(
+            "
+UPDATE users
+SET
+    join_sound_id = NULL
+WHERE
+    user = ?
+            ",
+            user_id
+        )
+            .execute(&pool)
+            .await?;
+
+        msg.channel_id.say(&ctx, "Your greet sound has been unset.").await?;
+    }
+    else {
+
+        let sound_vec = Sound::search_for_sound(query, *msg.guild_id.unwrap().as_u64(), user_id, pool.clone(), true).await?;
+
+        match sound_vec.first() {
+            Some(sound) => {
+                sound.set_as_greet(user_id, pool).await?;
+
+                msg.channel_id.say(&ctx, format!("Greet sound has been set to {} (ID {})", sound.name, sound.id)).await?;
+            }
+
+            None => {
+                msg.channel_id.say(&ctx, "Could not find a sound by that name.").await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/*
+#[command("popular")]
+async fn show_popular_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+
+}
+*/
