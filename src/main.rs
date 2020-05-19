@@ -32,7 +32,6 @@ use serenity::{
         AudioSource,
         ffmpeg,
         Handler as VoiceHandler,
-        pcm,
     },
 };
 
@@ -48,7 +47,6 @@ use dotenv::dotenv;
 
 use tokio::{
     fs::File,
-    io::empty,
     process::Command,
     sync::{
         Mutex,
@@ -58,7 +56,10 @@ use tokio::{
 };
 
 use std::{
-    collections::HashSet,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     env,
     path::Path,
     sync::Arc,
@@ -82,7 +83,7 @@ impl TypeMapKey for VoiceManager {
 struct VoiceGuilds;
 
 impl TypeMapKey for VoiceGuilds {
-    type Value = Arc<Mutex<HashSet<GuildId>>>;
+    type Value = Arc<Mutex<HashMap<GuildId, u8>>>;
 }
 
 static THEME_COLOR: u32 = 0x00e0f3;
@@ -590,18 +591,8 @@ SELECT *
 
                         let guild_data = GuildData::get_from_id(*guild_id.as_u64(), pool.clone()).await.unwrap();
 
-                        match voice_manager.get_mut(guild_id) {
-                            Some(handler) => {
-                                // play sound
-                                play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
-                            }
-
-                            None => {
-                                // try & join a voice channel
-                                if let Some(handler) = voice_manager.join(guild_id, user_channel) {
-                                    play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
-                                }
-                            }
+                        if let Some(handler) = voice_manager.join(guild_id, user_channel) {
+                            let _audio = play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
                         }
                     }
 
@@ -612,7 +603,7 @@ SELECT *
     }
 }
 
-async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashSet<GuildId>>, pool: MySqlPool)
+async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashMap<GuildId, u8>>, pool: MySqlPool)
     -> Result<(), Box<dyn std::error::Error>> {
 
     let audio = handler.play_only(sound.store_sound_source().await?);
@@ -626,7 +617,7 @@ async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHand
     sound.plays += 1;
     sound.commit(pool).await?;
 
-    voice_guilds.insert(GuildId(guild.id));
+    voice_guilds.insert(GuildId(guild.id), 1);
 
     Ok(())
 }
@@ -636,15 +627,13 @@ async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHand
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
 
-    let voice_guilds = Arc::new(Mutex::new(HashSet::new()));
+    let voice_guilds = Arc::new(Mutex::new(HashMap::new()));
 
     let framework = StandardFramework::new()
         .configure(|c| c
             .dynamic_prefix(|ctx, msg| Box::pin(async move {
                 let pool = ctx.data.read().await
                     .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
-
-                println!("dynamic_prefix: acquired pool and now about to query");
 
                 match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
                     Some(guild) => Some(guild.prefix),
@@ -688,7 +677,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashSet<GuildId>>>) {
+async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashMap<GuildId, u8>>>) {
     loop {
         time::delay_for(Duration::from_secs(30)).await;
 
@@ -697,21 +686,20 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
 
         let mut to_remove = HashSet::new();
 
-        for guild in voice_guilds_acquired.iter() {
-            let manager_opt = voice_manager.get_mut(guild);
+        for (guild, ticker) in voice_guilds_acquired.iter_mut() {
+            if *ticker == 0 {
+                let manager_opt = voice_manager.get_mut(guild);
 
-            if let Some(manager) = manager_opt {
-                let audio = manager.play_returning(pcm(false, empty()));
-
-                time::delay_for(Duration::from_millis(10)).await;
-
-                if !audio.lock().await.playing {
+                if let Some(manager) = manager_opt {
                     manager.leave();
+                    to_remove.insert(guild.clone());
+                }
+                else {
                     to_remove.insert(guild.clone());
                 }
             }
             else {
-                to_remove.insert(guild.clone());
+                *ticker -= 1;
             }
         }
 
@@ -769,25 +757,15 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
                     let guild_data = GuildData::get_from_id(*guild_id.as_u64(), pool.clone()).await.unwrap();
 
-                    match voice_manager.get_mut(guild_id) {
+                    match voice_manager.join(guild_id, user_channel) {
                         Some(handler) => {
-                            // play sound
                             play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
                         }
 
                         None => {
-                            // try & join a voice channel
-                            match voice_manager.join(guild_id, user_channel) {
-                                Some(handler) => {
-                                    play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
-                                }
-
-                                None => {
-                                    msg.channel_id.say(&ctx, "Failed to join channel").await?;
-                                }
-                            };
+                            msg.channel_id.say(&ctx, "Failed to join channel").await?;
                         }
-                    }
+                    };
                 }
 
                 None => {
