@@ -16,12 +16,13 @@ use serenity::{
         }
     },
     model::{
+        channel::Message,
+        guild::Guild,
         id::{
             GuildId,
             RoleId,
         },
-        channel::Message,
-        guild::Guild,
+        voice::VoiceState,
     },
     prelude::{
         Mutex as SerenityMutex,
@@ -104,11 +105,11 @@ lazy_static! {
 }
 
 #[group]
-#[commands(info, help, list_sounds, change_public, search_sounds, set_greet_sound)]
+#[commands(info, help, list_sounds, change_public, search_sounds, show_popular_sounds, show_random_sounds, set_greet_sound)]
 struct AllUsers;
 
 #[group]
-#[commands(play, upload_new_sound, change_volume)]
+#[commands(play, upload_new_sound, change_volume, delete_sound)]
 #[checks(role_check)]
 struct RoleManagedUsers;
 
@@ -544,7 +545,91 @@ WHERE
 struct Handler;
 
 #[serenity::async_trait]
-impl EventHandler for Handler {}
+impl EventHandler for Handler {
+    async fn voice_state_update(&self, ctx: Context, guild_id_opt: Option<GuildId>, old: Option<VoiceState>, new: VoiceState) {
+        if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
+            let pool = ctx.data.read().await
+                .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
+            if old.is_none() {
+                let join_id_res = sqlx::query!(
+                    "
+SELECT join_sound_id
+    FROM users
+    WHERE user = ? AND join_sound_id IS NOT NULL
+                    ",
+                    new.user_id.as_u64()
+                )
+                    .fetch_one(&pool)
+                    .await;
+
+                match join_id_res {
+                    Ok(join_id_record) => {
+                        let join_id = join_id_record.join_sound_id;
+                        let mut sound = sqlx::query_as_unchecked!(
+                            Sound,
+                            "
+SELECT *
+    FROM sounds
+    WHERE id = ?
+                            ",
+                            join_id
+                        )
+                            .fetch_one(&pool)
+                            .await.unwrap();
+
+                        let voice_manager_lock = ctx.data.read().await
+                            .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
+
+                        let mut voice_manager = voice_manager_lock.lock().await;
+
+                        let voice_guilds_lock = ctx.data.read().await
+                            .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
+
+                        let voice_guilds = voice_guilds_lock.lock().await;
+
+                        let guild_data = GuildData::get_from_id(*guild_id.as_u64(), pool.clone()).await.unwrap();
+
+                        match voice_manager.get_mut(guild_id) {
+                            Some(handler) => {
+                                // play sound
+                                play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
+                            }
+
+                            None => {
+                                // try & join a voice channel
+                                if let Some(handler) = voice_manager.join(guild_id, user_channel) {
+                                    play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
+                                }
+                            }
+                        }
+                    }
+
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+}
+
+async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashSet<GuildId>>, pool: MySqlPool)
+    -> Result<(), Box<dyn std::error::Error>> {
+
+    let audio = handler.play_only(sound.store_sound_source().await?);
+
+    {
+        let mut locked = audio.lock().await;
+
+        locked.volume(guild.volume as f32 / 100.0);
+    }
+
+    sound.plays += 1;
+    sound.commit(pool).await?;
+
+    voice_guilds.insert(GuildId(guild.id));
+
+    Ok(())
+}
 
 // entry point
 #[tokio::main]
@@ -605,6 +690,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashSet<GuildId>>>) {
     loop {
+        time::delay_for(Duration::from_secs(30)).await;
+
         let mut voice_guilds_acquired = voice_guilds.lock().await;
         let mut voice_manager = voice_manager_mutex.lock().await;
 
@@ -616,43 +703,27 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
             if let Some(manager) = manager_opt {
                 let audio = manager.play_returning(pcm(false, empty()));
 
+                time::delay_for(Duration::from_millis(10)).await;
+
                 if !audio.lock().await.playing {
                     manager.leave();
                     to_remove.insert(guild.clone());
                 }
+            }
+            else {
+                to_remove.insert(guild.clone());
             }
         }
 
         for val in to_remove.iter() {
             voice_guilds_acquired.remove(val);
         }
-
-        time::delay_for(Duration::from_secs(30)).await;
     }
 }
 
 #[command("play")]
 #[aliases("p")]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-
-    async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashSet<GuildId>>, pool: MySqlPool)
-        -> Result<(), Box<dyn std::error::Error>> {
-
-        let audio = handler.play_only(sound.store_sound_source().await?);
-
-        {
-            let mut locked = audio.lock().await;
-
-            locked.volume(guild.volume as f32 / 100.0);
-        }
-
-        sound.plays += 1;
-        sound.commit(pool).await?;
-
-        voice_guilds.insert(GuildId(guild.id));
-
-        Ok(())
-    }
 
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -1150,7 +1221,8 @@ async fn show_popular_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comma
         Sound,
         "
 SELECT * FROM sounds
-    ORDER BY plays
+    ORDER BY plays DESC
+    LIMIT 25
         "
     )
         .fetch_all(&pool)
@@ -1171,6 +1243,7 @@ async fn show_random_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comman
         "
 SELECT * FROM sounds
     ORDER BY rand()
+    LIMIT 25
         "
     )
         .fetch_all(&pool)
