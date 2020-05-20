@@ -132,46 +132,60 @@ async fn role_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResu
         let pool = ctx.data.read().await
             .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-        let user_member = msg.member(&ctx).await;
+        let guild_opt = msg.guild(&ctx).await;
 
-        match user_member {
-            Some(member) => {
-                let user_roles: String = member.roles
-                    .iter()
-                    .map(|r| (*r.as_u64()).to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ");
+        match guild_opt {
+            Some(guild) => {
+                let member_res = guild.member(*ctx, msg.author.id).await;
 
-                let guild_id = *msg.guild_id.unwrap().as_u64();
+                match member_res {
+                    Ok(member) => {
+                        let user_roles: String = member.roles
+                            .iter()
+                            .map(|r| (*r.as_u64()).to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ");
 
-                let role_res = sqlx::query!(
-                    "
+                        println!("{}", user_roles);
+
+                        let guild_id = *msg.guild_id.unwrap().as_u64();
+
+                        let role_res = sqlx::query!(
+                            "
 SELECT COUNT(1) as count
     FROM roles
-    WHERE guild_id = ? AND role IN (?)
-                    ",
-                    guild_id, user_roles
-                )
-                    .fetch_one(&pool).await;
+    WHERE
+        (guild_id = ? AND role IN (?)) OR
+        (role = ?)
+                            ",
+                            guild_id, user_roles, guild_id
+                        )
+                            .fetch_one(&pool).await;
 
-                match role_res {
-                    Ok(role_count) => {
-                        if role_count.count > 0 {
-                            CheckResult::Success
-                        }
-                        else {
-                            CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                        match role_res {
+                            Ok(role_count) => {
+                                if role_count.count > 0 {
+                                    CheckResult::Success
+                                }
+                                else {
+                                    CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                                }
+                            }
+
+                            Err(_) => {
+                                CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                            }
                         }
                     }
 
                     Err(_) => {
-                        CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                        CheckResult::Failure(Reason::User("Unexpected error looking up user roles".to_string()))
                     }
                 }
             }
 
             None => {
-                CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                CheckResult::Failure(Reason::User("Unexpected error looking up guild".to_string()))
             }
         }
     }
@@ -691,14 +705,28 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
 
 #[command("roles")]
 async fn set_allowed_roles(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let guild_id = *msg.guild_id.unwrap().as_u64();
+
+    let pool = ctx.data.read().await
+        .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
+
     if args.len() == 0 {
-        msg.channel_id.say(&ctx, "Usage: `?roles <role mentions or anything else to disable>`. Current roles: ").await?;
+        let roles = sqlx::query!(
+            "
+SELECT role
+    FROM roles
+    WHERE guild_id = ?
+            ",
+            guild_id
+        )
+            .fetch_all(&pool)
+            .await?;
+
+        let all_roles = roles.iter().map(|i| format!("<@&{}>", i.role.to_string())).collect::<Vec<String>>().join(", ");
+
+        msg.channel_id.say(&ctx, format!("Usage: `?roles <role mentions or anything else to disable>`. Current roles: {}", all_roles)).await?;
     }
     else {
-        let pool = ctx.data.read().await
-            .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
-
-        let guild_id = *msg.guild_id.unwrap().as_u64();
 
         sqlx::query!(
             "
@@ -711,18 +739,31 @@ DELETE FROM roles
         if msg.mention_roles.len() > 0 {
             for role in msg.mention_roles.iter().map(|r| *r.as_u64()) {
                 sqlx::query!(
-                "
+                    "
 INSERT INTO roles (guild_id, role)
     VALUES
         (?, ?)
-                ",
-                guild_id, role
-                ).execute(&pool).await?;
+                    ",
+                    guild_id, role
+                )
+                    .execute(&pool)
+                    .await?;
             }
 
             msg.channel_id.say(&ctx, "Specified roles whitelisted").await?;
         }
         else {
+            sqlx::query!(
+                    "
+INSERT INTO roles (guild_id, role)
+    VALUES
+        (?, ?)
+                    ",
+                    guild_id, guild_id
+                )
+                    .execute(&pool)
+                    .await?;
+
             msg.channel_id.say(&ctx, "Role whitelisting disabled").await?;
         }
     }

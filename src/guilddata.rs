@@ -21,8 +21,15 @@ SELECT id, name, prefix, volume
             .fetch_one(&db_pool)
             .await;
 
+        match guild {
+            Ok(g) => Some(g),
 
-        guild.ok()
+            Err(e) => {
+                println!("Guild query issue: {:?}", e);
+
+                None
+            }
+        }
     }
 
     pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
