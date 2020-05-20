@@ -103,6 +103,11 @@ lazy_static! {
         dotenv().unwrap();
         env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap()
     };
+
+    static ref DISCONNECT_CYCLES: u8 = {
+        dotenv().unwrap();
+        env::var("DISCONNECT_CYCLES").unwrap_or("2").parse::<u64>().unwrap()
+    };
 }
 
 #[group]
@@ -110,7 +115,7 @@ lazy_static! {
 struct AllUsers;
 
 #[group]
-#[commands(play, upload_new_sound, change_volume, delete_sound)]
+#[commands      (play, upload_new_sound, change_volume, delete_sound)]
 #[checks(role_check)]
 struct RoleManagedUsers;
 
@@ -617,7 +622,7 @@ async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHand
     sound.plays += 1;
     sound.commit(pool).await?;
 
-    voice_guilds.insert(GuildId(guild.id), 1);
+    voice_guilds.insert(GuildId(guild.id), *DISCONNECT_CYCLES);
 
     Ok(())
 }
@@ -668,18 +673,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cvm = Arc::clone(&client.voice_manager);
 
+    let disconnect_cycle_delay = env::var("DISCONNECT_CYCLE_DELAY")
+        .unwrap_or("300".to_string())
+        .parse::<u64>()?;
+
     // select on the client and client auto disconnector (when the client terminates, terminate the disconnector
     tokio::select! {
         _ = client.start() => {}
-        _ = disconnect_from_inactive(cvm, voice_guilds) => {}
+        _ = disconnect_from_inactive(cvm, voice_guilds, disconnect_cycle_delay) => {}
     };
 
     Ok(())
 }
 
-async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashMap<GuildId, u8>>>) {
+async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashMap<GuildId, u8>>>, wait_time: u64) {
     loop {
-        time::delay_for(Duration::from_secs(30)).await;
+        time::delay_for(Duration::from_secs(wait_time)).await;
 
         let mut voice_guilds_acquired = voice_guilds.lock().await;
         let mut voice_manager = voice_manager_mutex.lock().await;
