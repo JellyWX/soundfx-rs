@@ -35,6 +35,16 @@ SELECT id, name, prefix, volume
     pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
         sqlx::query!(
             "
+INSERT INTO roles (guild_id, role)
+    VALUES (?, ?)
+            ",
+            guild.id.as_u64(), guild.id.as_u64()
+        )
+            .execute(&db_pool)
+            .await?;
+
+        sqlx::query!(
+            "
 INSERT INTO servers (id, name)
     VALUES (?, ?)
             ", guild.id.as_u64(), guild.name
