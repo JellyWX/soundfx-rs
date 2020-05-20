@@ -96,9 +96,9 @@ SELECT name, id, plays, public, server_id, uploader_id
         uploader_id = ? OR
         server_id = ?
     )
-    ORDER BY rand(), public = 1, server_id = ?, uploader_id = ?
+    ORDER BY uploader_id = ? DESC, server_id = ? DESC, public = 1 DESC, rand()
                     ",
-                    name, user_id, guild_id, guild_id, user_id
+                    name, user_id, guild_id, user_id, guild_id
                 )
                     .fetch_all(&db_pool)
                     .await?;
