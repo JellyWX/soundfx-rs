@@ -974,6 +974,16 @@ async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRes
     let query = args.rest();
     let user_id = *msg.author.id.as_u64();
 
+    let _ = sqlx::query!(
+        "
+INSERT IGNORE INTO users (user)
+    VALUES (?)
+        ",
+        user_id
+    )
+        .execute(&pool)
+        .await;
+
     if query.len() == 0 {
         sqlx::query!(
             "
