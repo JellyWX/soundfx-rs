@@ -375,7 +375,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // select on the client and client auto disconnector (when the client terminates, terminate the disconnector
     tokio::select! {
-        _ = client.start() => {}
+        _ = client.start_autosharded() => {}
         _ = disconnect_from_inactive(cvm, voice_guilds, disconnect_cycle_delay) => {}
     };
 
@@ -505,18 +505,18 @@ async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         .embed(|e| e
             .title("Info")
             .color(THEME_COLOR)
-            .description("Default prefix: `?`
+            .description(format!("Default prefix: `?`
 
-Reset prefix: `@SoundFX prefix ?`
+Reset prefix: `<@{0}> prefix ?`
 
-Invite me: https://discordapp.com/oauth2/authorize?client_id=430384808200372245&scope=bot&permissions=36703232
+Invite me: https://discordapp.com/oauth2/authorize?client_id={0}&scope=bot&permissions=36703232
 
 **Welcome to SoundFX!**
 Developer: <@203532103185465344>
 Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
-There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx"))).await?;
+There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", env::var("CLIENT_ID").unwrap())))).await?;
 
     Ok(())
 }
