@@ -28,6 +28,7 @@ use serenity::{
         id::{
             GuildId,
             RoleId,
+            UserId,
         },
         voice::VoiceState,
     },
@@ -296,6 +297,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .allow_dm(false)
             .ignore_bots(true)
             .ignore_webhooks(true)
+            .on_mention(env::var("CLIENT_ID")
+                .and_then(|val| Ok(UserId(val.parse::<u64>().expect("CLIENT_ID not valid")))).ok())
         )
         .group(&ALLUSERS_GROUP)
         .group(&ROLEMANAGEDUSERS_GROUP)
@@ -745,7 +748,7 @@ async fn change_public(ctx: &Context, msg: &Message, args: Args) -> CommandResul
 
     match sound_result {
         Some(sound) => {
-            if sound.uploader_id != *uid {
+            if sound.uploader_id != Some(*uid) {
                 msg.channel_id.say(&ctx, "You can only change the availability of sounds you have uploaded. Use `?list me` to view your sounds").await?;
             }
 
@@ -787,7 +790,7 @@ async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult
 
     match sound_result {
         Some(sound) => {
-            if sound.uploader_id != uid && sound.server_id != gid {
+            if sound.uploader_id != Some(uid) && sound.server_id != gid {
                 msg.channel_id.say(&ctx, "You can only delete sounds from this guild or that you have uploaded.").await?;
             }
 
@@ -881,9 +884,9 @@ SELECT * FROM sounds
         "
     )
         .fetch_all(&pool)
-        .await?;
+        .await.unwrap();
 
-    format_search_results(search_results, msg, ctx).await?;
+    format_search_results(search_results, msg, ctx).await.unwrap();
 
     Ok(())
 }

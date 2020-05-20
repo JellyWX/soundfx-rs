@@ -24,7 +24,7 @@ pub struct Sound {
     pub plays: u32,
     pub public: bool,
     pub server_id: u64,
-    pub uploader_id: u64,
+    pub uploader_id: Option<u64>,
     pub src: Vec<u8>,
 }
 

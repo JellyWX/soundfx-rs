@@ -13,7 +13,7 @@ impl GuildData {
         let guild = sqlx::query_as!(
             GuildData,
             "
-SELECT *
+SELECT id, name, prefix, volume
     FROM servers
     WHERE id = ?
             ", guild_id
@@ -21,11 +21,8 @@ SELECT *
             .fetch_one(&db_pool)
             .await;
 
-        match guild {
-            Ok(guild) => Some(guild),
 
-            Err(_) => None,
-        }
+        guild.ok()
     }
 
     pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
