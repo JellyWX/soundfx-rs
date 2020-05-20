@@ -25,7 +25,6 @@ pub struct Sound {
     pub public: bool,
     pub server_id: u64,
     pub uploader_id: Option<u64>,
-    pub src: Vec<u8>,
 }
 
 impl Sound {
@@ -48,7 +47,7 @@ impl Sound {
             let sound = sqlx::query_as_unchecked!(
                 Self,
                 "
-SELECT *
+SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE id = ? AND (
         public = 1 OR
@@ -71,7 +70,7 @@ SELECT *
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT *
+SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE name = ? AND (
         public = 1 OR
@@ -90,7 +89,7 @@ SELECT *
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT *
+SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE name LIKE CONCAT('%', ?, '%') AND (
         public = 1 OR
@@ -109,7 +108,29 @@ SELECT *
         }
     }
 
-    pub async fn store_sound_source(&self) -> Result<Box<dyn AudioSource>, Box<dyn std::error::Error>> {
+    async fn get_self_src(&self, db_pool: MySqlPool) -> Vec<u8> {
+        struct Src {
+            src: Vec<u8>
+        }
+
+        let record = sqlx::query_as_unchecked!(
+            Src,
+            "
+SELECT src
+    FROM sounds
+    WHERE id = ?
+    LIMIT 1
+            ",
+            self.id
+        )
+            .fetch_one(&db_pool)
+            .await.unwrap();
+
+        return record.src
+    }
+
+    pub async fn store_sound_source(&self, db_pool: MySqlPool) -> Result<Box<dyn AudioSource>, Box<dyn std::error::Error>> {
+
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
         let path_name = format!("{}/sound-{}", caching_location, self.id);
@@ -120,7 +141,7 @@ SELECT *
 
             let mut file = File::create(&path).await?;
 
-            file.write_all(self.src.as_ref()).await?;
+            file.write_all(&self.get_self_src(db_pool).await).await?;
         }
 
         Ok(ffmpeg(path_name).await?)
@@ -267,7 +288,7 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT *
+SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
             ",
@@ -281,7 +302,7 @@ SELECT *
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT *
+SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
             ",

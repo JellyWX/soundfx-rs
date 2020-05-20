@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 serenity = {path = "/home/jude/serenity", features = ["voice", "collector"]}
-sqlx = {version = "0.3", default-features = false, features = ["runtime-tokio", "macros", "mysql", "bigdecimal"]}
+sqlx = {version = "0.3.5", default-features = false, features = ["runtime-tokio", "macros", "mysql", "bigdecimal"]}
 dotenv = "0.15"
 tokio = {version = "0.2.19", features = ["fs", "sync", "process", "io-util"]}
 lazy_static = "1.4.0"
