@@ -38,6 +38,9 @@ impl Sound {
                     Err(_) => None
                 }
             }
+            else if let Ok(id) = s.parse::<u32>() {
+                Some(id)
+            }
             else {
                 None
             }
