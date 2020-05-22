@@ -115,7 +115,7 @@ lazy_static! {
 struct AllUsers;
 
 #[group]
-#[commands(play, upload_new_sound, change_volume, delete_sound)]
+#[commands(play, upload_new_sound, change_volume, delete_sound, stop_playing)]
 #[checks(role_check)]
 struct RoleManagedUsers;
 
@@ -397,11 +397,8 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
 
                 if let Some(manager) = manager_opt {
                     manager.leave();
-                    to_remove.insert(guild.clone());
                 }
-                else {
-                    to_remove.insert(guild.clone());
-                }
+                to_remove.insert(guild.clone());
             }
             else {
                 *ticker -= 1;
@@ -1015,6 +1012,22 @@ WHERE
                 msg.channel_id.say(&ctx, "Could not find a sound by that name.").await?;
             }
         }
+    }
+
+    Ok(())
+}
+
+#[command("stop")]
+async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let voice_manager_lock = ctx.data.read().await
+                        .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
+
+    let mut voice_manager = voice_manager_lock.lock().await;
+
+    let manager_opt = voice_manager.get_mut(msg.guild_id.unwrap());
+
+    if let Some(manager) = manager_opt {
+        manager.leave();
     }
 
     Ok(())
