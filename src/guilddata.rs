@@ -6,14 +6,15 @@ pub struct GuildData {
     pub name: Option<String>,
     pub prefix: String,
     pub volume: u8,
+    pub allow_greets: bool,
 }
 
 impl GuildData {
     pub async fn get_from_id(guild_id: u64, db_pool: MySqlPool) -> Option<GuildData> {
-        let guild = sqlx::query_as!(
+        let guild = sqlx::query_as_unchecked!(
             GuildData,
             "
-SELECT id, name, prefix, volume
+SELECT id, name, prefix, volume, allow_greets
     FROM servers
     WHERE id = ?
             ", guild_id
@@ -57,6 +58,7 @@ INSERT INTO servers (id, name)
             name: Some(guild.name.clone()),
             prefix: String::from("?"),
             volume: 100,
+            allow_greets: true
         })
     }
 
@@ -67,11 +69,12 @@ UPDATE servers
 SET
     name = ?,
     prefix = ?,
-    volume = ?
+    volume = ?,
+    allow_greets = ?
 WHERE
     id = ?
             ",
-            self.name, self.prefix, self.volume, self.id
+            self.name, self.prefix, self.volume, self.allow_greets, self.id
         )
             .execute(&db_pool)
             .await?;
