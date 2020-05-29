@@ -208,7 +208,7 @@ async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult 
     if let Some(guild_id) = msg.guild_id {
         if let Ok(member) = guild_id.member(ctx.clone(), msg.author.id).await {
             if let Ok(perms) = member.permissions(ctx).await {
-                if perms.manage_guild() {
+                if perms.manage_guild() || perms.administrator() {
                     return CheckResult::Success
                 }
             }
@@ -557,7 +557,7 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
     let pool = ctx.data.read().await
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-    let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
+    let guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
     let mut guild_data = guild_data_opt.unwrap();
 
     if args.len() == 1 {
@@ -602,7 +602,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
     let mut guild_data;
 
     {
-        let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
+        let guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
 
         guild_data = guild_data_opt.unwrap();
     }
