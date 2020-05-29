@@ -339,10 +339,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let pool = ctx.data.read().await
                     .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
-                match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool).await {
-                    Some(guild) => Some(guild.prefix),
+                let guild = match msg.guild(&ctx.cache).await {
+                    Some(guild) => guild,
 
-                    None => Some(String::from("?"))
+                    None => {
+                        return Some(String::from("?"));
+                    }
+                };
+
+                match GuildData::get_from_id(*msg.guild_id.unwrap().as_u64(), pool.clone()).await {
+                    Some(mut guild_data) => {
+                        let name = Some(guild.name);
+
+                        if guild_data.name != name {
+                            guild_data.name = name;
+                            guild_data.commit(pool).await.unwrap();
+                        }
+                        Some(guild_data.prefix)
+                    },
+
+                    None => {
+                        GuildData::create_from_guild(guild, pool).await.unwrap();
+                        Some(String::from("?"))
+                    }
                 }
             }))
             .allow_dm(false)
@@ -539,11 +558,6 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .get::<SQLPool>().cloned().expect("Could not get SQLPool from data");
 
     let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
-
-    if guild_data_opt.is_none() {
-        guild_data_opt = Some(GuildData::create_from_guild(guild, pool.clone()).await.unwrap())
-    }
-
     let mut guild_data = guild_data_opt.unwrap();
 
     if args.len() == 1 {
@@ -589,10 +603,6 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
 
     {
         let mut guild_data_opt = GuildData::get_from_id(*guild.id.as_u64(), pool.clone()).await;
-
-        if guild_data_opt.is_none() {
-            guild_data_opt = Some(GuildData::create_from_guild(guild, pool.clone()).await.unwrap())
-        }
 
         guild_data = guild_data_opt.unwrap();
     }
