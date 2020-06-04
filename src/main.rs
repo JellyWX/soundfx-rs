@@ -17,7 +17,7 @@ use serenity::{
         Client, Context,
     },
     framework::standard::{
-        Args, CommandResult, CheckResult, DispatchError, StandardFramework, Reason,
+        Args, CommandError, CommandResult, CheckResult, DispatchError, StandardFramework, Reason,
         macros::{
             command, group, check, hook,
         }
@@ -65,7 +65,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use serenity::framework::standard::CommandError;
 
 
 struct SQLPool;
@@ -236,9 +235,9 @@ impl EventHandler for Handler {
                     if guild_data.allow_greets {
                         let join_id_res = sqlx::query!(
                             "
-        SELECT join_sound_id
-            FROM users
-            WHERE user = ? AND join_sound_id IS NOT NULL
+SELECT join_sound_id
+    FROM users
+    WHERE user = ? AND join_sound_id IS NOT NULL
                             ",
                             new.user_id.as_u64()
                         )
@@ -251,9 +250,9 @@ impl EventHandler for Handler {
                                 let mut sound = sqlx::query_as_unchecked!(
                                     Sound,
                                     "
-        SELECT name, id, plays, public, server_id, uploader_id
-            FROM sounds
-            WHERE id = ?
+SELECT name, id, plays, public, server_id, uploader_id
+    FROM sounds
+    WHERE id = ?
                                     ",
                                     join_id
                                 )
