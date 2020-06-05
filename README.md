@@ -17,7 +17,7 @@ Config options:
 * `DISCORD_TOKEN`- your token (required)
 * `DATABASE_URL`- your database URL (required)
 * `DISCONNECT_CYCLES`- specifies the number of inactivity cycles before the bot should disconnect itself from a voice channel
-* `DISCONNECT_CYCLE_LENGTH`- specifies the delay between cleanup cycles
+* `DISCONNECT_CYCLE_DELAY`- specifies the delay between cleanup cycles
 * `MAX_SOUNDS`- specifies how many sounds a user should be allowed without Patreon
 * `PATREON_GUILD`- specifies the ID of the guild being used for Patreon benefits
 * `PATREON_ROLE`- specifies the role being checked for Patreon benefits
