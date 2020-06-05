@@ -145,8 +145,6 @@ async fn role_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResu
                             .collect::<Vec<String>>()
                             .join(", ");
 
-                        println!("{}", user_roles);
-
                         let guild_id = *msg.guild_id.unwrap().as_u64();
 
                         let role_res = sqlx::query!(
@@ -394,15 +392,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cvm = Arc::clone(&client.voice_manager);
 
-    let disconnect_cycle_delay = env::var("DISCONNECT_CYCLE_DELAY")
-        .unwrap_or("300".to_string())
-        .parse::<u64>()?;
+    tokio::spawn(async {
+        let disconnect_cycle_delay = env::var("DISCONNECT_CYCLE_DELAY")
+            .unwrap_or("300".to_string())
+            .parse::<u64>().expect("DISCONNECT_CYCLE_DELAY invalid");
 
-    // select on the client and client auto disconnector (when the client terminates, terminate the disconnector
-    tokio::select! {
-        _ = client.start_autosharded() => {}
-        _ = disconnect_from_inactive(cvm, voice_guilds, disconnect_cycle_delay) => {}
-    };
+        disconnect_from_inactive(cvm, voice_guilds, disconnect_cycle_delay).await
+    });
+
+    client.start_autosharded().await?;
 
     Ok(())
 }
