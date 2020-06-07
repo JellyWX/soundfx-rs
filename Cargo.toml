@@ -10,3 +10,4 @@ sqlx = {version = "0.3.5", default-features = false, features = ["runtime-tokio"
 dotenv = "0.15"
 tokio = {version = "0.2.19", features = ["fs", "sync", "process", "io-util"]}
 lazy_static = "1.4.0"
+reqwest = "0.10.6"

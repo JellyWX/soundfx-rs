@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate lazy_static;
 
+extern crate reqwest;
+
 mod guilddata;
 mod sound;
 mod error;
@@ -24,6 +26,7 @@ use serenity::{
     },
     model::{
         channel::Message,
+        guild::Guild,
         id::{
             GuildId,
             RoleId,
@@ -83,6 +86,12 @@ struct VoiceGuilds;
 
 impl TypeMapKey for VoiceGuilds {
     type Value = Arc<Mutex<HashMap<GuildId, u8>>>;
+}
+
+struct ReqwestClient;
+
+impl TypeMapKey for ReqwestClient {
+    type Value = Arc<reqwest::Client>;
 }
 
 static THEME_COLOR: u32 = 0x00e0f3;
@@ -220,6 +229,30 @@ struct Handler;
 
 #[serenity::async_trait]
 impl EventHandler for Handler {
+    async fn guild_create(&self, ctx: Context, _guild: Guild, is_new: bool) {
+        if is_new {
+            if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {
+                let guild_count = ctx.cache.guild_count().await;
+
+                let mut hm = HashMap::new();
+                hm.insert("server_count", guild_count);
+
+                let client = ctx.data.read().await
+                    .get::<ReqwestClient>().cloned().expect("Could not get ReqwestClient from data");
+
+                let response = client.post(format!("https://top.gg/api/bots/{}/stats", ctx.cache.current_user_id().await.as_u64()).as_str())
+                    .header("Authorization", token)
+                    .json(&hm)
+                    .send()
+                    .await;
+
+                if let Ok(res) = response {
+                    println!("DiscordBots Response: {:?}", res);
+                }
+            }
+        }
+    }
+
     async fn voice_state_update(&self, ctx: Context, guild_id_opt: Option<GuildId>, old: Option<VoiceState>, new: VoiceState) {
         if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
 
@@ -388,6 +421,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data.insert::<VoiceManager>(Arc::clone(&client.voice_manager));
 
         data.insert::<VoiceGuilds>(voice_guilds.clone());
+
+        data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
     }
 
     let cvm = Arc::clone(&client.voice_manager);
