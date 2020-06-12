@@ -10,23 +10,27 @@ pub struct GuildData {
 }
 
 impl GuildData {
-    pub async fn get_from_id(guild_id: u64, db_pool: MySqlPool) -> Option<GuildData> {
-        let guild = sqlx::query_as_unchecked!(
+    pub async fn get_from_id(guild: Guild, db_pool: MySqlPool) -> Option<GuildData> {
+        let guild_data = sqlx::query_as_unchecked!(
             GuildData,
             "
 SELECT id, name, prefix, volume, allow_greets
     FROM servers
     WHERE id = ?
-            ", guild_id
+            ", guild.id.as_u64()
         )
             .fetch_one(&db_pool)
             .await;
 
-        match guild {
+        match guild_data {
             Ok(g) => Some(g),
 
+            Err(sqlx::Error::RowNotFound) => {
+                Self::create_from_guild(guild, db_pool).await.ok()
+            }
+
             Err(e) => {
-                println!("Guild query issue: {:?}", e);
+                println!("{:?}", e);
 
                 None
             }
@@ -45,7 +49,7 @@ INSERT INTO servers (id, name)
 
         sqlx::query!(
             "
-INSERT INTO roles (guild_id, role)
+INSERT IGNORE INTO roles (guild_id, role)
     VALUES (?, ?)
             ",
             guild.id.as_u64(), guild.id.as_u64()

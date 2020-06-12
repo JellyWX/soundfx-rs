@@ -1,0 +1,35 @@
+CREATE TABLE servers (
+    id BIGINT UNSIGNED NOT NULL,
+    name VARCHAR(100),
+    prefix VARCHAR(5) DEFAULT '?',
+    volume TINYINT DEFAULT 100,
+    allow_greets BOOL DEFAULT 1,
+
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE sounds (
+    id INT UNSIGNED NOT NULL,
+    name VARCHAR(20),
+    plays INT UNSIGNED NOT NULL DEFAULT 0,
+    public BOOL NOT NULL DEFAULT 1,
+
+    src MEDIUMBLOB NOT NULL,
+
+    server_id BIGINT UNSIGNED NOT NULL,
+    uploader_id BIGINT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE roles (
+    guild_id BIGINT UNSIGNED NOT NULL,
+    role BIGINT UNSIGNED NOT NULL
+);
+
+CREATE TABLE users (
+    user BIGINT UNSIGNED NOT NULL,
+    join_sound_id INT UNSIGNED,
+
+    FOREIGN KEY users(join_sound_id) REFERENCES sounds(id) ON DELETE SET NULL ON UPDATE CASCADE
+);
