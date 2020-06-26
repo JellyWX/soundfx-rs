@@ -732,7 +732,8 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
                                         msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
                                     }
 
-                                    Err(_) => {
+                                    Err(e) => {
+                                        println!("Error occured during upload: {:?}", e);
                                         msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
                                     }
                                 }
