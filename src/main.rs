@@ -174,12 +174,12 @@ SELECT COUNT(1) as count
                                     CheckResult::Success
                                 }
                                 else {
-                                    CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                                    CheckResult::Failure(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
                                 }
                             }
 
                             Err(_) => {
-                                CheckResult::Failure(Reason::User("User has not got a sufficient role".to_string()))
+                                CheckResult::Failure(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
                             }
                         }
                     }
@@ -522,6 +522,8 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                     match voice_manager.join(guild_id, user_channel) {
                         Some(handler) => {
                             play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
+
+                            msg.channel_id.say(&ctx, format!("Playing sound {} with ID {}", sound.name, sound.id)).await?;
                         }
 
                         None => {
