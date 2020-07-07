@@ -218,6 +218,16 @@ async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult 
                     return CheckResult::Success
                 }
             }
+
+            if let Some(roles) = member.roles(ctx).await {
+                if roles
+                        .iter()
+                        .filter(|r| r.permissions.manage_guild() || r.permissions.administrator() )
+                        .next()
+                        .is_some() {
+                    return CheckResult::Success
+                }
+            }
         }
     }
 
