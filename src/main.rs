@@ -25,7 +25,10 @@ use serenity::{
         }
     },
     model::{
-        channel::Message,
+        channel::{
+            Channel,
+            Message,
+        },
         guild::Guild,
         id::{
             GuildId,
@@ -120,17 +123,48 @@ lazy_static! {
 
 #[group]
 #[commands(info, help, list_sounds, change_public, search_sounds, show_popular_sounds, show_random_sounds, set_greet_sound)]
+#[checks(self_perm_check)]
 struct AllUsers;
 
 #[group]
 #[commands(play, upload_new_sound, change_volume, delete_sound, stop_playing)]
-#[checks(role_check)]
+#[checks(self_perm_check, role_check)]
 struct RoleManagedUsers;
 
 #[group]
 #[commands(change_prefix, set_allowed_roles, allow_greet_sounds)]
-#[checks(permission_check)]
+#[checks(self_perm_check, permission_check)]
 struct PermissionManagedUsers;
+
+#[check]
+#[name("self_perm_check")]
+async fn self_perm_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
+    let channel_o = msg.channel(&ctx).await;
+
+    if let Some(channel_e) = channel_o {
+        if let Channel::Guild(channel) = channel_e {
+            let permissions_r = channel.permissions_for_user(&ctx, &ctx.cache.current_user_id().await).await;
+
+            if let Ok(permissions) = permissions_r {
+                if permissions.send_messages() && permissions.embed_links() {
+                    CheckResult::Success
+                }
+                else {
+                    CheckResult::Failure(Reason::Log("Bot does not have enough permissions".to_string()))
+                }
+            }
+            else {
+                CheckResult::Failure(Reason::Log("No perms found".to_string()))
+            }
+        }
+        else {
+            CheckResult::Failure(Reason::Log("No DM commands".to_string()))
+        }
+    }
+    else {
+        CheckResult::Failure(Reason::Log("Channel not available".to_string()))
+    }
+}
 
 #[check]
 #[name("role_check")]
