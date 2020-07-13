@@ -322,37 +322,35 @@ SELECT join_sound_id
                                 .fetch_one(&pool)
                                 .await;
 
-                            match join_id_res {
-                                Ok(join_id_record) => {
-                                    let join_id = join_id_record.join_sound_id;
-                                    let mut sound = sqlx::query_as_unchecked!(
-                                        Sound,
-                                        "
+                            if let Ok(join_id_record) = join_id_res {
+
+                                let join_id = join_id_record.join_sound_id;
+
+                                let mut sound = sqlx::query_as_unchecked!(
+                                    Sound,
+                                    "
 SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
-                                        ",
-                                        join_id
-                                    )
-                                        .fetch_one(&pool)
-                                        .await.unwrap();
+                                    ",
+                                    join_id
+                                )
+                                    .fetch_one(&pool)
+                                    .await.unwrap();
 
-                                    let voice_manager_lock = ctx.data.read().await
-                                        .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
+                                let voice_manager_lock = ctx.data.read().await
+                                    .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
 
-                                    let mut voice_manager = voice_manager_lock.lock().await;
+                                let voice_guilds_lock = ctx.data.read().await
+                                    .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
 
-                                    let voice_guilds_lock = ctx.data.read().await
-                                        .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
+                                let voice_guilds = voice_guilds_lock.lock().await;
 
-                                    let voice_guilds = voice_guilds_lock.lock().await;
+                                let mut voice_manager = voice_manager_lock.lock().await;
 
-                                    if let Some(handler) = voice_manager.join(guild_id, user_channel) {
-                                        let _audio = play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
-                                    }
+                                if let Some(handler) = voice_manager.join(guild_id, user_channel) {
+                                    let _audio = play_audio(&mut sound, guild_data, handler, voice_guilds, pool).await;
                                 }
-
-                                Err(_) => {}
                             }
                         }
                     }
@@ -491,12 +489,15 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
         time::delay_for(Duration::from_secs(wait_time)).await;
 
         let mut voice_guilds_acquired = voice_guilds.lock().await;
-        let mut voice_manager = voice_manager_mutex.lock().await;
 
         let mut to_remove = HashSet::new();
 
         for (guild, ticker) in voice_guilds_acquired.iter_mut() {
+
             if *ticker == 0 {
+
+                let mut voice_manager = voice_manager_mutex.lock().await;
+
                 let manager_opt = voice_manager.get_mut(guild);
 
                 if let Some(manager) = manager_opt {
@@ -504,9 +505,11 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
                 }
                 to_remove.insert(guild.clone());
             }
+
             else {
                 *ticker -= 1;
             }
+
         }
 
         for val in to_remove.iter() {
@@ -554,14 +557,14 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                     let voice_manager_lock = ctx.data.read().await
                         .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
 
-                    let mut voice_manager = voice_manager_lock.lock().await;
-
                     let voice_guilds_lock = ctx.data.read().await
                         .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
 
                     let voice_guilds = voice_guilds_lock.lock().await;
 
                     let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+
+                    let mut voice_manager = voice_manager_lock.lock().await;
 
                     match voice_manager.join(guild_id, user_channel) {
                         Some(handler) => {
