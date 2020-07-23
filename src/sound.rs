@@ -132,7 +132,7 @@ SELECT src
         return record.src
     }
 
-    pub async fn store_sound_source(&self, db_pool: MySqlPool) -> Result<Box<dyn AudioSource>, Box<dyn std::error::Error>> {
+    pub async fn store_sound_source(&self, db_pool: MySqlPool) -> Result<Box<dyn AudioSource>, Box<dyn std::error::Error + Send + Sync>> {
 
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
@@ -182,7 +182,7 @@ SELECT COUNT(1) as count
         Ok(c as u32)
     }
 
-    pub async fn set_as_greet(&self, user_id: u64, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn set_as_greet(&self, user_id: u64, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 UPDATE users
@@ -199,7 +199,7 @@ WHERE
         Ok(())
     }
 
-    pub async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 UPDATE sounds
@@ -217,7 +217,7 @@ WHERE
         Ok(())
     }
 
-    pub async fn delete(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn delete(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 DELETE
@@ -232,7 +232,7 @@ DELETE
         Ok(())
     }
 
-    pub async fn create_anon(name: &str, src_url: &str, server_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<u64, Box<dyn std::error::Error + Send>> {
+    pub async fn create_anon(name: &str, src_url: &str, server_id: u64, user_id: u64, db_pool: MySqlPool) -> Result<u64, Box<dyn std::error::Error + Send + Sync + Send>> {
         async fn process_src(src_url: &str) -> Option<Vec<u8>> {
             let future = Command::new("ffmpeg")
                 .arg("-i")
@@ -287,7 +287,7 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
         }
     }
 
-    pub async fn get_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error>> {
+    pub async fn get_user_sounds(user_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
@@ -301,7 +301,7 @@ SELECT name, id, plays, public, server_id, uploader_id
         Ok(sounds)
     }
 
-    pub async fn get_guild_sounds(guild_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error>> {
+    pub async fn get_guild_sounds(guild_id: u64, db_pool: MySqlPool) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "

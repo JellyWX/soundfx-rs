@@ -37,7 +37,7 @@ SELECT id, name, prefix, volume, allow_greets
         }
     }
 
-    pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error>> {
+    pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 INSERT INTO servers (id, name)
@@ -66,7 +66,7 @@ INSERT IGNORE INTO roles (guild_id, role)
         })
     }
 
-    pub async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 UPDATE servers

@@ -361,7 +361,7 @@ SELECT name, id, plays, public, server_id, uploader_id
 }
 
 async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashMap<GuildId, u8>>, pool: MySqlPool)
-    -> Result<(), Box<dyn std::error::Error>> {
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let audio = handler.play_only(sound.store_sound_source(pool.clone()).await?);
 
@@ -401,7 +401,7 @@ async fn dispatch_error_hook(ctx: &Context, msg: &Message, error: DispatchError)
 
 // entry point
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     dotenv()?;
 
@@ -995,7 +995,7 @@ async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult
     Ok(())
 }
 
-async fn format_search_results(search_results: Vec<Sound>, msg: &Message, ctx: &Context) -> Result<(), Box<dyn std::error::Error>> {
+async fn format_search_results(search_results: Vec<Sound>, msg: &Message, ctx: &Context) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut current_character_count = 0;
     let title = "Public sounds matching filter:";
 
