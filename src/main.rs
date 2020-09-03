@@ -56,20 +56,21 @@ use dotenv::dotenv;
 
 use tokio::{
     sync::{
-        Mutex,
-        MutexGuard
+        RwLock,
+        RwLockWriteGuard,
     },
     time,
 };
 
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashMap,
     env,
     sync::Arc,
-    time::Duration,
+    time::{
+        Duration,
+        SystemTime,
+        UNIX_EPOCH,
+    },
 };
 
 
@@ -88,7 +89,7 @@ impl TypeMapKey for VoiceManager {
 struct VoiceGuilds;
 
 impl TypeMapKey for VoiceGuilds {
-    type Value = Arc<Mutex<HashMap<GuildId, u8>>>;
+    type Value = Arc<RwLock<HashMap<GuildId, u64>>>;
 }
 
 struct ReqwestClient;
@@ -113,11 +114,6 @@ lazy_static! {
     static ref PATREON_ROLE: u64 = {
         dotenv().unwrap();
         env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap()
-    };
-
-    static ref DISCONNECT_CYCLES: u8 = {
-        dotenv().unwrap();
-        env::var("DISCONNECT_CYCLES").unwrap_or("2".to_string()).parse::<u8>().unwrap()
     };
 }
 
@@ -245,27 +241,17 @@ async fn permission_check(ctx: &Context, msg: &Message, _args: &mut Args) -> Che
 }
 
 async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult {
-    if let Some(guild_id) = msg.guild_id {
-        if let Ok(member) = guild_id.member(ctx.clone(), msg.author.id).await {
-            if let Ok(perms) = member.permissions(ctx).await {
-                if perms.manage_guild() || perms.administrator() {
-                    return CheckResult::Success
-                }
-            }
-
-            if let Some(roles) = member.roles(ctx).await {
-                if roles
-                        .iter()
-                        .filter(|r| r.permissions.manage_guild() || r.permissions.administrator() )
-                        .next()
-                        .is_some() {
-                    return CheckResult::Success
-                }
-            }
+    if let Some(guild) = msg.guild(&ctx).await {
+        if guild.member_permissions(&msg.author).manage_guild() {
+            CheckResult::Success
+        }
+        else {
+            CheckResult::Failure(Reason::User(String::from("User needs `Manage Guild` permission")))
         }
     }
-
-    CheckResult::Failure(Reason::User(String::from("User needs `Manage Guild` permission")))
+    else {
+        CheckResult::Failure(Reason::User(String::from("Guild not cached")))
+    }
 }
 
 // create event handler for bot
@@ -344,7 +330,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                                 let voice_guilds_lock = ctx.data.read().await
                                     .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
 
-                                let voice_guilds = voice_guilds_lock.lock().await;
+                                let voice_guilds = voice_guilds_lock.write().await;
 
                                 let mut voice_manager = voice_manager_lock.lock().await;
 
@@ -360,7 +346,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 }
 
-async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: MutexGuard<'_, HashMap<GuildId, u8>>, pool: MySqlPool)
+async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: RwLockWriteGuard<'_, HashMap<GuildId, u64>>, pool: MySqlPool)
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let audio = handler.play_only(sound.store_sound_source(pool.clone()).await?);
@@ -374,7 +360,10 @@ async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHand
     sound.plays += 1;
     sound.commit(pool).await?;
 
-    voice_guilds.insert(GuildId(guild.id), *DISCONNECT_CYCLES);
+    let start = SystemTime::now();
+    let since_epoch = start.duration_since(UNIX_EPOCH).unwrap();
+
+    voice_guilds.insert(GuildId(guild.id), since_epoch.as_secs());
 
     Ok(())
 }
@@ -405,7 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     dotenv()?;
 
-    let voice_guilds = Arc::new(Mutex::new(HashMap::new()));
+    let voice_guilds = Arc::new(RwLock::new(HashMap::new()));
 
     let framework = StandardFramework::new()
         .configure(|c| c
@@ -484,17 +473,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<Mutex<HashMap<GuildId, u8>>>, wait_time: u64) {
+async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>, voice_guilds: Arc<RwLock<HashMap<GuildId, u64>>>, wait_time: u64) {
     loop {
         time::delay_for(Duration::from_secs(wait_time)).await;
 
-        let mut voice_guilds_acquired = voice_guilds.lock().await;
+        let voice_guilds_acquired = voice_guilds.read().await;
 
-        let mut to_remove = HashSet::new();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-        for (guild, ticker) in voice_guilds_acquired.iter_mut() {
+        for (guild, last_active) in voice_guilds_acquired.iter() {
 
-            if *ticker == 0 {
+            if (now - last_active) > wait_time {
 
                 let mut voice_manager = voice_manager_mutex.lock().await;
 
@@ -503,17 +492,7 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
                 if let Some(manager) = manager_opt {
                     manager.leave();
                 }
-                to_remove.insert(guild.clone());
             }
-
-            else {
-                *ticker -= 1;
-            }
-
-        }
-
-        for val in to_remove.iter() {
-            voice_guilds_acquired.remove(val);
         }
     }
 }
@@ -557,17 +536,17 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                     let voice_manager_lock = ctx.data.read().await
                         .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
 
-                    let voice_guilds_lock = ctx.data.read().await
-                        .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
-
-                    let voice_guilds = voice_guilds_lock.lock().await;
-
-                    let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
-
                     let mut voice_manager = voice_manager_lock.lock().await;
 
                     match voice_manager.join(guild_id, user_channel) {
                         Some(handler) => {
+                            let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+
+                            let voice_guilds_lock = ctx.data.read().await
+                                .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
+
+                            let voice_guilds = voice_guilds_lock.write().await;
+
                             play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
 
                             msg.channel_id.say(&ctx, format!("Playing sound {} with ID {}", sound.name, sound.id)).await?;

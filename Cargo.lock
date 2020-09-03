@@ -143,9 +143,9 @@ checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
 name = "base64"
-version = "0.12.0"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d5ca2cd0adc3f48f9e9ea5a6bbdf9ccc0bfade884847e484d452414c7ccffb3"
+checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
 name = "bigdecimal"
@@ -235,7 +235,9 @@ dependencies = [
 
 [[package]]
 name = "command_attr"
-version = "0.2.0"
+version = "0.3.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093ee06b40fcba41b22ddf85de7ed33728fe2e246fcdbc1b1d3ab26f87fabf3b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1085,7 +1087,7 @@ version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b82c9238b305f26f53443e3a4bc8528d64b8d0bee408ec949eb7bf5635ec680"
 dependencies = [
- "base64 0.12.0",
+ "base64 0.12.3",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -1153,6 +1155,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0d4a31f5d68413404705d6982529b0e11a9aacd4839d1d6222ee3b8cb4015e1"
 dependencies = [
  "base64 0.11.0",
+ "log",
+ "ring",
+ "sct",
+ "webpki",
+]
+
+[[package]]
+name = "rustls"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d1126dcf58e93cee7d098dbda643b5f92ed724f1f6a63007c1116eed6700c81"
+dependencies = [
+ "base64 0.12.3",
  "log",
  "ring",
  "sct",
@@ -1263,13 +1278,15 @@ dependencies = [
 
 [[package]]
 name = "serenity"
-version = "0.8.6"
+version = "0.9.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f2b6557e836289a35b45ecc9da78b464de79cec3aa9b7cfd07f654cbc478c00"
 dependencies = [
  "async-tls",
  "async-trait",
  "async-tungstenite",
  "audiopus",
- "base64 0.12.0",
+ "base64 0.12.3",
  "bitflags",
  "byteorder",
  "bytes",
@@ -1280,7 +1297,7 @@ dependencies = [
  "log",
  "rand",
  "reqwest",
- "rustls 0.17.0",
+ "rustls 0.18.1",
  "serde",
  "serde_json",
  "static_assertions",
@@ -1398,7 +1415,7 @@ checksum = "88ac5a436f941c42eac509471a730df5c3c58e1450e68cd39afedbd948206273"
 dependencies = [
  "async-native-tls",
  "async-stream",
- "base64 0.12.0",
+ "base64 0.12.3",
  "bigdecimal",
  "bitflags",
  "byteorder",
