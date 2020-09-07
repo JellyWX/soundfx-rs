@@ -55,10 +55,7 @@ use sqlx::{
 use dotenv::dotenv;
 
 use tokio::{
-    sync::{
-        RwLock,
-        RwLockWriteGuard,
-    },
+    sync::RwLock,
     time,
 };
 
@@ -327,10 +324,8 @@ SELECT name, id, plays, public, server_id, uploader_id
                                 let voice_manager_lock = ctx.data.read().await
                                     .get::<VoiceManager>().cloned().expect("Could not get VoiceManager from data");
 
-                                let voice_guilds_lock = ctx.data.read().await
+                                let voice_guilds = ctx.data.read().await
                                     .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
-
-                                let voice_guilds = voice_guilds_lock.write().await;
 
                                 let mut voice_manager = voice_manager_lock.lock().await;
 
@@ -346,7 +341,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 }
 
-async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, mut voice_guilds: RwLockWriteGuard<'_, HashMap<GuildId, u64>>, pool: MySqlPool)
+async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHandler, voice_guilds: Arc<RwLock<HashMap<GuildId, u64>>>, pool: MySqlPool)
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let audio = handler.play_only(sound.store_sound_source(pool.clone()).await?);
@@ -360,10 +355,11 @@ async fn play_audio(sound: &mut Sound, guild: GuildData, handler: &mut VoiceHand
     sound.plays += 1;
     sound.commit(pool).await?;
 
-    let start = SystemTime::now();
-    let since_epoch = start.duration_since(UNIX_EPOCH).unwrap();
+    {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-    voice_guilds.insert(GuildId(guild.id), since_epoch.as_secs());
+        voice_guilds.write().await.insert(GuildId(guild.id), since_epoch.as_secs());
+    }
 
     Ok(())
 }
@@ -484,14 +480,9 @@ async fn disconnect_from_inactive(voice_manager_mutex: Arc<SerenityMutex<ClientV
         for (guild, last_active) in voice_guilds_acquired.iter() {
 
             if (now - last_active) > wait_time {
-
                 let mut voice_manager = voice_manager_mutex.lock().await;
 
-                let manager_opt = voice_manager.get_mut(guild);
-
-                if let Some(manager) = manager_opt {
-                    manager.leave();
-                }
+                voice_manager.leave(guild);
             }
         }
     }
@@ -542,10 +533,8 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                         Some(handler) => {
                             let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
 
-                            let voice_guilds_lock = ctx.data.read().await
+                            let voice_guilds = ctx.data.read().await
                                 .get::<VoiceGuilds>().cloned().expect("Could not get VoiceGuilds from data");
-
-                            let voice_guilds = voice_guilds_lock.write().await;
 
                             play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
 
