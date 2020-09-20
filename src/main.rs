@@ -239,7 +239,7 @@ async fn permission_check(ctx: &Context, msg: &Message, _args: &mut Args) -> Che
 
 async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult {
     if let Some(guild) = msg.guild(&ctx).await {
-        if guild.member_permissions(&msg.author).manage_guild() {
+        if guild.member_permissions(&msg.author).await.manage_guild() {
             CheckResult::Success
         }
         else {
