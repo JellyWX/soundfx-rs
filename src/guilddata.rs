@@ -17,17 +17,16 @@ impl GuildData {
 SELECT id, name, prefix, volume, allow_greets
     FROM servers
     WHERE id = ?
-            ", guild.id.as_u64()
+            ",
+            guild.id.as_u64()
         )
-            .fetch_one(&db_pool)
-            .await;
+        .fetch_one(&db_pool)
+        .await;
 
         match guild_data {
             Ok(g) => Some(g),
 
-            Err(sqlx::Error::RowNotFound) => {
-                Self::create_from_guild(guild, db_pool).await.ok()
-            }
+            Err(sqlx::Error::RowNotFound) => Self::create_from_guild(guild, db_pool).await.ok(),
 
             Err(e) => {
                 println!("{:?}", e);
@@ -37,36 +36,45 @@ SELECT id, name, prefix, volume, allow_greets
         }
     }
 
-    pub async fn create_from_guild(guild: Guild, db_pool: MySqlPool) -> Result<GuildData, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn create_from_guild(
+        guild: Guild,
+        db_pool: MySqlPool,
+    ) -> Result<GuildData, Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 INSERT INTO servers (id, name)
     VALUES (?, ?)
-            ", guild.id.as_u64(), guild.name
+            ",
+            guild.id.as_u64(),
+            guild.name
         )
-            .execute(&db_pool)
-            .await?;
+        .execute(&db_pool)
+        .await?;
 
         sqlx::query!(
             "
 INSERT IGNORE INTO roles (guild_id, role)
     VALUES (?, ?)
             ",
-            guild.id.as_u64(), guild.id.as_u64()
+            guild.id.as_u64(),
+            guild.id.as_u64()
         )
-            .execute(&db_pool)
-            .await?;
+        .execute(&db_pool)
+        .await?;
 
         Ok(GuildData {
             id: *guild.id.as_u64(),
             name: Some(guild.name.clone()),
             prefix: String::from("?"),
             volume: 100,
-            allow_greets: true
+            allow_greets: true,
         })
     }
 
-    pub async fn commit(&self, db_pool: MySqlPool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn commit(
+        &self,
+        db_pool: MySqlPool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
 UPDATE servers
@@ -78,10 +86,14 @@ SET
 WHERE
     id = ?
             ",
-            self.name, self.prefix, self.volume, self.allow_greets, self.id
+            self.name,
+            self.prefix,
+            self.volume,
+            self.allow_greets,
+            self.id
         )
-            .execute(&db_pool)
-            .await?;
+        .execute(&db_pool)
+        .await?;
 
         Ok(())
     }
