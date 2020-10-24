@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "soundfx-rs"
-version = "1.0.1-rc.3"
+version = "1.0.1-rc.4"
 dependencies = [
  "dotenv",
  "lazy_static",
