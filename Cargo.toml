@@ -1,13 +1,13 @@
 [package]
 name = "soundfx-rs"
-version = "0.1.0"
+version = "1.0.1-rc.3"
 authors = ["jude-lafitteIII <judewrs@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serenity = {git = "https://github.com/Lakelezz/serenity", branch = "await", features = ["voice", "collector"]}
-sqlx = {version = "0.3.5", default-features = false, features = ["runtime-tokio", "macros", "mysql", "bigdecimal"]}
+serenity = { git = "https://github.com/Lakelezz/serenity", branch = "await", features = ["voice", "collector"] }
+sqlx = { version = "0.3.5", default-features = false, features = ["runtime-tokio", "macros", "mysql", "bigdecimal"] }
 dotenv = "0.15"
-tokio = {version = "0.2.19", features = ["fs", "sync", "process", "io-util"]}
-lazy_static = "1.4.0"
-reqwest = "0.10.6"
+tokio = { version = "0.2", features = ["fs", "sync", "process", "io-util"] }
+lazy_static = "1.4"
+reqwest = "0.10"

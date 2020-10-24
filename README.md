@@ -6,7 +6,7 @@ efficient and robust package. SoundFX 2 is as asynchronous as it can get, and ru
 
 ### Building
 
-Use the Cargo.toml file to build it. Simple as. Don't need any shit like MySQL libs and stuff because SQLx includes its 
+Use the Cargo.toml file to build it. Simple as. Don't need anything like MySQL libs and stuff because SQLx includes its 
 own pure Rust one. Needs Rust 1.43+
 
 ### Running & Config
@@ -22,4 +22,3 @@ Config options:
 * `PATREON_GUILD`- specifies the ID of the guild being used for Patreon benefits
 * `PATREON_ROLE`- specifies the role being checked for Patreon benefits
 * `CACHING_LOCATION`- specifies the location in which to cache the audio files (defaults to `/tmp/`)
-* `CLIENT_ID`- specifies the ID of the client for mention commands

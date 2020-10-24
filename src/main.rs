@@ -22,7 +22,7 @@ use serenity::{
     model::{
         channel::{Channel, Message},
         guild::Guild,
-        id::{GuildId, RoleId, UserId},
+        id::{GuildId, RoleId},
         voice::VoiceState,
     },
     prelude::{Mutex as SerenityMutex, *},
@@ -38,6 +38,8 @@ use dotenv::dotenv;
 
 use tokio::{sync::RwLock, time};
 
+use serenity::http::Http;
+use serenity::utils::shard_id;
 use std::{
     collections::HashMap,
     env,
@@ -244,13 +246,19 @@ struct Handler;
 
 #[serenity::async_trait]
 impl EventHandler for Handler {
-    async fn guild_create(&self, ctx: Context, _guild: Guild, is_new: bool) {
+    async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
         if is_new {
             if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {
-                let guild_count = ctx.cache.guild_count().await;
+                let guild_count = ctx.cache.guild_count().await as u64;
+                let shard_count = ctx.cache.shard_count().await;
 
                 let mut hm = HashMap::new();
                 hm.insert("server_count", guild_count);
+                hm.insert(
+                    "shard_id",
+                    shard_id(guild.id.as_u64().to_owned(), shard_count),
+                );
+                hm.insert("shard_count", shard_count);
 
                 let client = ctx
                     .data
@@ -423,6 +431,12 @@ async fn dispatch_error_hook(ctx: &Context, msg: &Message, error: DispatchError)
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     dotenv()?;
 
+    let token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");
+
+    let http = Http::new_with_token(&token);
+
+    let logged_in_id = http.get_current_user().await?.id;
+
     let voice_guilds = Arc::new(RwLock::new(HashMap::new()));
 
     let framework = StandardFramework::new()
@@ -466,11 +480,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .allow_dm(false)
             .ignore_bots(true)
             .ignore_webhooks(true)
-            .on_mention(
-                env::var("CLIENT_ID")
-                    .and_then(|val| Ok(UserId(val.parse::<u64>().expect("CLIENT_ID not valid"))))
-                    .ok(),
-            )
+            .on_mention(Some(logged_in_id))
         })
         .group(&ALLUSERS_GROUP)
         .group(&ROLEMANAGEDUSERS_GROUP)
@@ -663,22 +673,26 @@ async fn help(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 
 #[command]
 async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let current_user = ctx.cache.current_user().await;
+
     msg.channel_id.send_message(&ctx, |m| m
         .embed(|e| e
             .title("Info")
             .color(THEME_COLOR)
+            .footer(|f| f
+                .text(concat!(env!("CARGO_PKG_NAME"), " ver ", env!("CARGO_PKG_VERSION"))))
             .description(format!("Default prefix: `?`
 
 Reset prefix: `<@{0}> prefix ?`
 
-Invite me: https://discordapp.com/oauth2/authorize?client_id={0}&scope=bot&permissions=36703232
+Invite me: https://discordapp.com/oauth2/authorize?client_id={1}&scope=bot&permissions=36703232
 
 **Welcome to SoundFX!**
 Developer: <@203532103185465344>
 Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
-There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", env::var("CLIENT_ID").unwrap())))).await?;
+There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", current_user.name, current_user.id.as_u64())))).await?;
 
     Ok(())
 }
