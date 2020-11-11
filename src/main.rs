@@ -19,6 +19,7 @@ use serenity::{
         macros::{check, command, group, hook},
         Args, CheckResult, CommandError, CommandResult, DispatchError, Reason, StandardFramework,
     },
+    http::Http,
     model::{
         channel::{Channel, Message},
         guild::Guild,
@@ -26,43 +27,26 @@ use serenity::{
         voice::VoiceState,
     },
     prelude::{Mutex as SerenityMutex, *},
+    utils::shard_id,
     voice::Handler as VoiceHandler,
 };
 
-use sqlx::{
-    mysql::{MySqlConnection, MySqlPool},
-    Pool,
-};
+use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
-use tokio::{sync::RwLock, time};
+use std::{collections::HashMap, env, sync::Arc, time::Duration};
 
-use serenity::http::Http;
-use serenity::utils::shard_id;
-use std::{
-    collections::HashMap,
-    env,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+struct MySQL;
 
-struct SQLPool;
-
-impl TypeMapKey for SQLPool {
-    type Value = Pool<MySqlConnection>;
+impl TypeMapKey for MySQL {
+    type Value = MySqlPool;
 }
 
 struct VoiceManager;
 
 impl TypeMapKey for VoiceManager {
     type Value = Arc<SerenityMutex<ClientVoiceManager>>;
-}
-
-struct VoiceGuilds;
-
-impl TypeMapKey for VoiceGuilds {
-    type Value = Arc<RwLock<HashMap<GuildId, u64>>>;
 }
 
 struct ReqwestClient;
@@ -150,7 +134,7 @@ async fn role_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResu
             .data
             .read()
             .await
-            .get::<SQLPool>()
+            .get::<MySQL>()
             .cloned()
             .expect("Could not get SQLPool from data");
 
@@ -229,7 +213,12 @@ async fn permission_check(ctx: &Context, msg: &Message, _args: &mut Args) -> Che
 
 async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult {
     if let Some(guild) = msg.guild(&ctx).await {
-        if guild.member_permissions(&msg.author).await.manage_guild() {
+        if guild
+            .member_permissions(&ctx, &msg.author)
+            .await
+            .unwrap()
+            .manage_guild()
+        {
             CheckResult::Success
         } else {
             CheckResult::Failure(Reason::User(String::from(
@@ -307,7 +296,7 @@ impl EventHandler for Handler {
                         .data
                         .read()
                         .await
-                        .get::<SQLPool>()
+                        .get::<MySQL>()
                         .cloned()
                         .expect("Could not get SQLPool from data");
 
@@ -350,25 +339,11 @@ SELECT name, id, plays, public, server_id, uploader_id
                                     .cloned()
                                     .expect("Could not get VoiceManager from data");
 
-                                let voice_guilds = ctx
-                                    .data
-                                    .read()
-                                    .await
-                                    .get::<VoiceGuilds>()
-                                    .cloned()
-                                    .expect("Could not get VoiceGuilds from data");
-
                                 let mut voice_manager = voice_manager_lock.lock().await;
 
                                 if let Some(handler) = voice_manager.join(guild_id, user_channel) {
-                                    let _audio = play_audio(
-                                        &mut sound,
-                                        guild_data,
-                                        handler,
-                                        voice_guilds,
-                                        pool,
-                                    )
-                                    .await;
+                                    let _audio =
+                                        play_audio(&mut sound, guild_data, handler, pool).await;
                                 }
                             }
                         }
@@ -383,10 +358,9 @@ async fn play_audio(
     sound: &mut Sound,
     guild: GuildData,
     handler: &mut VoiceHandler,
-    voice_guilds: Arc<RwLock<HashMap<GuildId, u64>>>,
-    pool: MySqlPool,
+    mysql_pool: MySqlPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let audio = handler.play_only(sound.store_sound_source(pool.clone()).await?);
+    let audio = handler.play_only(sound.store_sound_source(mysql_pool.clone()).await?);
 
     {
         let mut locked = audio.lock().await;
@@ -395,16 +369,7 @@ async fn play_audio(
     }
 
     sound.plays += 1;
-    sound.commit(pool).await?;
-
-    {
-        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-
-        voice_guilds
-            .write()
-            .await
-            .insert(GuildId(guild.id), since_epoch.as_secs());
-    }
+    sound.commit(mysql_pool).await?;
 
     Ok(())
 }
@@ -442,8 +407,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let logged_in_id = http.get_current_user().await?.id;
 
-    let voice_guilds = Arc::new(RwLock::new(HashMap::new()));
-
     let framework = StandardFramework::new()
         .configure(|c| {
             c.dynamic_prefix(|ctx, msg| {
@@ -452,7 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .data
                         .read()
                         .await
-                        .get::<SQLPool>()
+                        .get::<MySQL>()
                         .cloned()
                         .expect("Could not get SQLPool from data");
 
@@ -494,7 +457,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .on_dispatch_error(dispatch_error_hook);
 
     let mut client =
-        Client::new(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
+        Client::builder(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
             .intents(
                 GatewayIntents::GUILD_VOICE_STATES
                     | GatewayIntents::GUILD_MESSAGES
@@ -506,59 +469,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .expect("Error occurred creating client");
 
     {
-        let pool = MySqlPool::new(&env::var("DATABASE_URL").expect("No database URL provided"))
-            .await
-            .unwrap();
+        let mysql_pool =
+            MySqlPool::new(&env::var("DATABASE_URL").expect("No database URL provided"))
+                .await
+                .unwrap();
 
         let mut data = client.data.write().await;
-        data.insert::<SQLPool>(pool);
+
+        data.insert::<MySQL>(mysql_pool);
 
         data.insert::<VoiceManager>(Arc::clone(&client.voice_manager));
-
-        data.insert::<VoiceGuilds>(voice_guilds.clone());
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
     }
 
-    let cvm = Arc::clone(&client.voice_manager);
-
-    tokio::spawn(async {
-        let disconnect_cycle_delay = env::var("DISCONNECT_CYCLE_DELAY")
-            .unwrap_or("300".to_string())
-            .parse::<u64>()
-            .expect("DISCONNECT_CYCLE_DELAY invalid");
-
-        disconnect_from_inactive(cvm, voice_guilds, disconnect_cycle_delay).await
-    });
-
     client.start_autosharded().await?;
 
     Ok(())
-}
-
-async fn disconnect_from_inactive(
-    voice_manager_mutex: Arc<SerenityMutex<ClientVoiceManager>>,
-    voice_guilds: Arc<RwLock<HashMap<GuildId, u64>>>,
-    wait_time: u64,
-) {
-    loop {
-        time::delay_for(Duration::from_secs(wait_time)).await;
-
-        let voice_guilds_acquired = voice_guilds.read().await;
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        for (guild, last_active) in voice_guilds_acquired.iter() {
-            if (now - last_active) > wait_time {
-                let mut voice_manager = voice_manager_mutex.lock().await;
-
-                voice_manager.leave(guild);
-            }
-        }
-    }
 }
 
 #[command("play")]
@@ -587,7 +514,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 .data
                 .read()
                 .await
-                .get::<SQLPool>()
+                .get::<MySQL>()
                 .cloned()
                 .expect("Could not get SQLPool from data");
 
@@ -619,15 +546,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                             let guild_data =
                                 GuildData::get_from_id(guild, pool.clone()).await.unwrap();
 
-                            let voice_guilds = ctx
-                                .data
-                                .read()
-                                .await
-                                .get::<VoiceGuilds>()
-                                .cloned()
-                                .expect("Could not get VoiceGuilds from data");
-
-                            play_audio(sound, guild_data, handler, voice_guilds, pool).await?;
+                            play_audio(sound, guild_data, handler, pool).await?;
 
                             msg.channel_id
                                 .say(
@@ -716,7 +635,7 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -764,7 +683,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -842,7 +761,7 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
                 .data
                 .read()
                 .await
-                .get::<SQLPool>()
+                .get::<MySQL>()
                 .cloned()
                 .expect("Could not get SQLPool from data");
 
@@ -870,45 +789,57 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
                 }
 
                 if permit_upload {
-                    msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
+                    let attachment = if let Some(attachment) = msg.attachments.get(0) {
+                        Some(attachment.url.clone())
+                    } else {
+                        msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
 
-                    let reply = msg
-                        .channel_id
-                        .await_reply(&ctx)
-                        .author_id(msg.author.id)
-                        .timeout(Duration::from_secs(30))
-                        .await;
+                        let reply = msg
+                            .channel_id
+                            .await_reply(&ctx)
+                            .author_id(msg.author.id)
+                            .timeout(Duration::from_secs(30))
+                            .await;
 
-                    match reply {
-                        Some(reply_msg) => {
-                            if reply_msg.attachments.len() == 1 {
-                                match Sound::create_anon(
-                                    &new_name,
-                                    &reply_msg.attachments[0].url,
-                                    *msg.guild_id.unwrap().as_u64(),
-                                    *msg.author.id.as_u64(),
-                                    pool,
-                                )
-                                .await
-                                {
-                                    Ok(_) => {
-                                        msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
-                                    }
+                        match reply {
+                            Some(reply_msg) => {
+                                if let Some(attachment) = reply_msg.attachments.get(0) {
+                                    Some(attachment.url.clone())
+                                } else {
+                                    msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
 
-                                    Err(e) => {
-                                        println!("Error occurred during upload: {:?}", e);
-                                        msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
-                                    }
+                                    None
                                 }
-                            } else {
-                                msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
+                            }
+
+                            None => {
+                                msg.channel_id
+                                    .say(&ctx, "Upload timed out. Please redo the command")
+                                    .await?;
+
+                                None
                             }
                         }
+                    };
 
-                        None => {
-                            msg.channel_id
-                                .say(&ctx, "Upload timed out. Please redo the command")
-                                .await?;
+                    if let Some(url) = attachment {
+                        match Sound::create_anon(
+                            &new_name,
+                            url.as_str(),
+                            *msg.guild_id.unwrap().as_u64(),
+                            *msg.author.id.as_u64(),
+                            pool,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                            }
+
+                            Err(e) => {
+                                println!("Error occurred during upload: {:?}", e);
+                                msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
+                            }
                         }
                     }
                 } else {
@@ -943,7 +874,7 @@ async fn set_allowed_roles(ctx: &Context, msg: &Message, args: Args) -> CommandR
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1023,7 +954,7 @@ async fn list_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult 
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1070,7 +1001,7 @@ async fn change_public(ctx: &Context, msg: &Message, args: Args) -> CommandResul
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
     let uid = msg.author.id.as_u64();
@@ -1120,7 +1051,7 @@ async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1195,7 +1126,7 @@ async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResul
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1221,7 +1152,7 @@ async fn show_popular_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comma
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1248,7 +1179,7 @@ async fn show_random_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comman
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1278,7 +1209,7 @@ async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRes
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not get SQLPool from data");
 
@@ -1383,7 +1314,7 @@ async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comman
         .data
         .read()
         .await
-        .get::<SQLPool>()
+        .get::<MySQL>()
         .cloned()
         .expect("Could not acquire SQL pool from data");
 
