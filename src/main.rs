@@ -289,62 +289,81 @@ impl EventHandler for Handler {
         old: Option<VoiceState>,
         new: VoiceState,
     ) {
-        if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
-            if old.is_none() {
-                if let Some(guild) = ctx.cache.guild(guild_id).await {
-                    let pool = ctx
-                        .data
-                        .read()
-                        .await
-                        .get::<MySQL>()
-                        .cloned()
-                        .expect("Could not get SQLPool from data");
+        if let Some(past_state) = old {
+            if let (Some(guild_id), None) = (guild_id_opt, new.channel_id) {
+                if let Some(channel_id) = past_state.channel_id {
+                    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await
+                    {
+                        if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
+                            let voice_manager_lock = ctx
+                                .data
+                                .read()
+                                .await
+                                .get::<VoiceManager>()
+                                .cloned()
+                                .expect("Could not get VoiceManager from data");
 
-                    let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
+                            let mut voice_manager = voice_manager_lock.lock().await;
 
-                    if let Some(guild_data) = guild_data_opt {
-                        if guild_data.allow_greets {
-                            let join_id_res = sqlx::query!(
-                                "
+                            voice_manager.leave(guild_id);
+                        }
+                    }
+                }
+            }
+        } else if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
+            if let Some(guild) = ctx.cache.guild(guild_id).await {
+                let pool = ctx
+                    .data
+                    .read()
+                    .await
+                    .get::<MySQL>()
+                    .cloned()
+                    .expect("Could not get SQLPool from data");
+
+                let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
+
+                if let Some(guild_data) = guild_data_opt {
+                    if guild_data.allow_greets {
+                        let join_id_res = sqlx::query!(
+                            "
 SELECT join_sound_id
     FROM users
     WHERE user = ? AND join_sound_id IS NOT NULL
                                 ",
-                                new.user_id.as_u64()
-                            )
-                            .fetch_one(&pool)
-                            .await;
+                            new.user_id.as_u64()
+                        )
+                        .fetch_one(&pool)
+                        .await;
 
-                            if let Ok(join_id_record) = join_id_res {
-                                let join_id = join_id_record.join_sound_id;
+                        if let Ok(join_id_record) = join_id_res {
+                            let join_id = join_id_record.join_sound_id;
 
-                                let mut sound = sqlx::query_as_unchecked!(
-                                    Sound,
-                                    "
+                            let mut sound = sqlx::query_as_unchecked!(
+                                Sound,
+                                "
 SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
                                     ",
-                                    join_id
-                                )
-                                .fetch_one(&pool)
+                                join_id
+                            )
+                            .fetch_one(&pool)
+                            .await
+                            .unwrap();
+
+                            let voice_manager_lock = ctx
+                                .data
+                                .read()
                                 .await
-                                .unwrap();
+                                .get::<VoiceManager>()
+                                .cloned()
+                                .expect("Could not get VoiceManager from data");
 
-                                let voice_manager_lock = ctx
-                                    .data
-                                    .read()
-                                    .await
-                                    .get::<VoiceManager>()
-                                    .cloned()
-                                    .expect("Could not get VoiceManager from data");
+                            let mut voice_manager = voice_manager_lock.lock().await;
 
-                                let mut voice_manager = voice_manager_lock.lock().await;
-
-                                if let Some(handler) = voice_manager.join(guild_id, user_channel) {
-                                    let _audio =
-                                        play_audio(&mut sound, guild_data, handler, pool).await;
-                                }
+                            if let Some(handler) = voice_manager.join(guild_id, user_channel) {
+                                let _audio =
+                                    play_audio(&mut sound, guild_data, handler, pool).await;
                             }
                         }
                     }
