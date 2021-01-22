@@ -11,13 +11,10 @@ use guilddata::GuildData;
 use sound::Sound;
 
 use serenity::{
-    client::{
-        bridge::{gateway::GatewayIntents, voice::ClientVoiceManager},
-        Client, Context,
-    },
+    client::{bridge::gateway::GatewayIntents, Client, Context},
     framework::standard::{
         macros::{check, command, group, hook},
-        Args, CheckResult, CommandError, CommandResult, DispatchError, Reason, StandardFramework,
+        Args, CommandError, CommandResult, DispatchError, Reason, StandardFramework,
     },
     http::Http,
     model::{
@@ -26,27 +23,25 @@ use serenity::{
         id::{GuildId, RoleId},
         voice::VoiceState,
     },
-    prelude::{Mutex as SerenityMutex, *},
+    prelude::*,
     utils::shard_id,
-    voice::Handler as VoiceHandler,
 };
+
+use songbird::{Call, SerenityInit};
+
+type CheckResult = Result<(), Reason>;
 
 use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
+use tokio::sync::MutexGuard;
 
 struct MySQL;
 
 impl TypeMapKey for MySQL {
     type Value = MySqlPool;
-}
-
-struct VoiceManager;
-
-impl TypeMapKey for VoiceManager {
-    type Value = Arc<SerenityMutex<ClientVoiceManager>>;
 }
 
 struct ReqwestClient;
@@ -109,20 +104,20 @@ async fn self_perm_check(ctx: &Context, msg: &Message, _args: &mut Args) -> Chec
 
             if let Ok(permissions) = permissions_r {
                 if permissions.send_messages() && permissions.embed_links() {
-                    CheckResult::Success
+                    Ok(())
                 } else {
-                    CheckResult::Failure(Reason::Log(
+                    Err(Reason::Log(
                         "Bot does not have enough permissions".to_string(),
                     ))
                 }
             } else {
-                CheckResult::Failure(Reason::Log("No perms found".to_string()))
+                Err(Reason::Log("No perms found".to_string()))
             }
         } else {
-            CheckResult::Failure(Reason::Log("No DM commands".to_string()))
+            Err(Reason::Log("No DM commands".to_string()))
         }
     } else {
-        CheckResult::Failure(Reason::Log("Channel not available".to_string()))
+        Err(Reason::Log("Channel not available".to_string()))
     }
 }
 
@@ -173,33 +168,33 @@ SELECT COUNT(1) as count
                         match role_res {
                             Ok(role_count) => {
                                 if role_count.count > 0 {
-                                    CheckResult::Success
+                                    Ok(())
                                 }
                                 else {
-                                    CheckResult::Failure(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
+                                    Err(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
                                 }
                             }
 
                             Err(_) => {
-                                CheckResult::Failure(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
+                                Err(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
                             }
                         }
                     }
 
-                    Err(_) => CheckResult::Failure(Reason::User(
+                    Err(_) => Err(Reason::User(
                         "Unexpected error looking up user roles".to_string(),
                     )),
                 }
             }
 
-            None => CheckResult::Failure(Reason::User(
+            None => Err(Reason::User(
                 "Unexpected error looking up guild".to_string(),
             )),
         }
     }
 
-    if perform_permission_check(ctx, &msg).await.is_success() {
-        CheckResult::Success
+    if perform_permission_check(ctx, &msg).await.is_ok() {
+        Ok(())
     } else {
         check_for_roles(&ctx, &msg).await
     }
@@ -219,14 +214,14 @@ async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult 
             .unwrap()
             .manage_guild()
         {
-            CheckResult::Success
+            Ok(())
         } else {
-            CheckResult::Failure(Reason::User(String::from(
+            Err(Reason::User(String::from(
                 "User needs `Manage Guild` permission",
             )))
         }
     } else {
-        CheckResult::Failure(Reason::User(String::from("Guild not cached")))
+        Err(Reason::User(String::from("Guild not cached")))
     }
 }
 
@@ -295,17 +290,9 @@ impl EventHandler for Handler {
                     if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await
                     {
                         if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
-                            let voice_manager_lock = ctx
-                                .data
-                                .read()
-                                .await
-                                .get::<VoiceManager>()
-                                .cloned()
-                                .expect("Could not get VoiceManager from data");
+                            let voice_manager = songbird::get(&ctx).await.unwrap();
 
-                            let mut voice_manager = voice_manager_lock.lock().await;
-
-                            voice_manager.leave(guild_id);
+                            let _ = voice_manager.leave(guild_id).await;
                         }
                     }
                 }
@@ -351,20 +338,13 @@ SELECT name, id, plays, public, server_id, uploader_id
                             .await
                             .unwrap();
 
-                            let voice_manager_lock = ctx
-                                .data
-                                .read()
-                                .await
-                                .get::<VoiceManager>()
-                                .cloned()
-                                .expect("Could not get VoiceManager from data");
+                            let voice_manager = songbird::get(&ctx).await.unwrap();
 
-                            let mut voice_manager = voice_manager_lock.lock().await;
+                            let (handler, _) = voice_manager.join(guild_id, user_channel).await;
 
-                            if let Some(handler) = voice_manager.join(guild_id, user_channel) {
-                                let _audio =
-                                    play_audio(&mut sound, guild_data, handler, pool).await;
-                            }
+                            let _ =
+                                play_audio(&mut sound, guild_data, &mut handler.lock().await, pool)
+                                    .await;
                         }
                     }
                 }
@@ -376,16 +356,12 @@ SELECT name, id, plays, public, server_id, uploader_id
 async fn play_audio(
     sound: &mut Sound,
     guild: GuildData,
-    handler: &mut VoiceHandler,
+    handler: &mut MutexGuard<'_, Call>,
     mysql_pool: MySqlPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let audio = handler.play_only(sound.store_sound_source(mysql_pool.clone()).await?);
+    let audio = handler.play_source(sound.store_sound_source(mysql_pool.clone()).await?);
 
-    {
-        let mut locked = audio.lock().await;
-
-        locked.volume(guild.volume as f32 / 100.0);
-    }
+    let _ = audio.set_volume(guild.volume as f32 / 100.0);
 
     sound.plays += 1;
     sound.commit(mysql_pool).await?;
@@ -484,20 +460,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
             .framework(framework)
             .event_handler(Handler)
+            .register_songbird()
             .await
             .expect("Error occurred creating client");
 
     {
         let mysql_pool =
-            MySqlPool::new(&env::var("DATABASE_URL").expect("No database URL provided"))
+            MySqlPool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
                 .await
                 .unwrap();
 
         let mut data = client.data.write().await;
 
         data.insert::<MySQL>(mysql_pool);
-
-        data.insert::<VoiceManager>(Arc::clone(&client.voice_manager));
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
     }
@@ -550,35 +525,20 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
             match sound_res {
                 Some(sound) => {
-                    let voice_manager_lock = ctx
-                        .data
-                        .read()
-                        .await
-                        .get::<VoiceManager>()
-                        .cloned()
-                        .expect("Could not get VoiceManager from data");
+                    let voice_manager = songbird::get(ctx).await.unwrap();
 
-                    let mut voice_manager = voice_manager_lock.lock().await;
+                    let (call_handler, _) = voice_manager.join(guild_id, user_channel).await;
 
-                    match voice_manager.join(guild_id, user_channel) {
-                        Some(handler) => {
-                            let guild_data =
-                                GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+                    let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
 
-                            play_audio(sound, guild_data, handler, pool).await?;
+                    play_audio(sound, guild_data, &mut call_handler.lock().await, pool).await?;
 
-                            msg.channel_id
-                                .say(
-                                    &ctx,
-                                    format!("Playing sound {} with ID {}", sound.name, sound.id),
-                                )
-                                .await?;
-                        }
-
-                        None => {
-                            msg.channel_id.say(&ctx, "Failed to join channel").await?;
-                        }
-                    };
+                    msg.channel_id
+                        .say(
+                            &ctx,
+                            format!("Playing sound {} with ID {}", sound.name, sound.id),
+                        )
+                        .await?;
                 }
 
                 None => {
@@ -1300,21 +1260,9 @@ WHERE
 
 #[command("stop")]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    let voice_manager_lock = ctx
-        .data
-        .read()
-        .await
-        .get::<VoiceManager>()
-        .cloned()
-        .expect("Could not get VoiceManager from data");
+    let voice_manager = songbird::get(ctx).await.unwrap();
 
-    let mut voice_manager = voice_manager_lock.lock().await;
-
-    let manager_opt = voice_manager.get_mut(msg.guild_id.unwrap());
-
-    if let Some(manager) = manager_opt {
-        manager.leave();
-    }
+    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
 
     Ok(())
 }

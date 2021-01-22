@@ -2,10 +2,10 @@ use super::error::ErrorTypes;
 
 use sqlx::mysql::MySqlPool;
 
-use serenity::voice::{ffmpeg, AudioSource};
+use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
-use tokio::{fs::File, process::Command};
-
+use songbird::ffmpeg;
+use songbird::input::Input;
 use std::{env, path::Path};
 
 pub struct Sound {
@@ -136,21 +136,19 @@ SELECT src
     pub async fn store_sound_source(
         &self,
         db_pool: MySqlPool,
-    ) -> Result<Box<dyn AudioSource>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Input, Box<dyn std::error::Error + Send + Sync>> {
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
         let path_name = format!("{}/sound-{}", caching_location, self.id);
         let path = Path::new(&path_name);
 
         if !path.exists() {
-            use tokio::prelude::*;
-
             let mut file = File::create(&path).await?;
 
             file.write_all(&self.get_self_src(db_pool).await).await?;
         }
 
-        Ok(ffmpeg(path_name).await?)
+        Ok(ffmpeg(path_name).await.expect("FFMPEG ERROR!"))
     }
 
     pub async fn count_user_sounds(
@@ -264,7 +262,7 @@ DELETE
         server_id: u64,
         user_id: u64,
         db_pool: MySqlPool,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync + Send>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + Send>> {
         async fn process_src(src_url: &str) -> Option<Vec<u8>> {
             let output = Command::new("ffmpeg")
                 .kill_on_drop(true)
@@ -312,7 +310,7 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
                 .execute(&db_pool)
                 .await
                 {
-                    Ok(u) => Ok(u),
+                    Ok(_) => Ok(()),
 
                     Err(e) => Err(Box::new(e)),
                 }
