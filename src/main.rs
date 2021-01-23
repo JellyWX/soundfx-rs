@@ -20,14 +20,19 @@ use serenity::{
     model::{
         channel::{Channel, Message},
         guild::Guild,
-        id::{GuildId, RoleId},
+        id::{ChannelId, GuildId, RoleId},
         voice::VoiceState,
     },
     prelude::*,
     utils::shard_id,
 };
 
-use songbird::{Call, SerenityInit};
+use songbird::{
+    create_player,
+    driver::{Config, CryptoMode, DecodeMode},
+    error::JoinResult,
+    Call, SerenityInit,
+};
 
 type CheckResult = Result<(), Reason>;
 
@@ -307,7 +312,7 @@ impl EventHandler for Handler {
                     .cloned()
                     .expect("Could not get SQLPool from data");
 
-                let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
+                let guild_data_opt = GuildData::get_from_id(guild.clone(), pool.clone()).await;
 
                 if let Some(guild_data) = guild_data_opt {
                     if guild_data.allow_greets {
@@ -338,9 +343,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                             .await
                             .unwrap();
 
-                            let voice_manager = songbird::get(&ctx).await.unwrap();
-
-                            let (handler, _) = voice_manager.join(guild_id, user_channel).await;
+                            let (handler, _) = join_channel(&ctx, guild, user_channel).await;
 
                             let _ =
                                 play_audio(&mut sound, guild_data, &mut handler.lock().await, pool)
@@ -356,17 +359,48 @@ SELECT name, id, plays, public, server_id, uploader_id
 async fn play_audio(
     sound: &mut Sound,
     guild: GuildData,
-    handler: &mut MutexGuard<'_, Call>,
+    call_handler: &mut MutexGuard<'_, Call>,
     mysql_pool: MySqlPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let audio = handler.play_source(sound.store_sound_source(mysql_pool.clone()).await?);
+    {
+        let (track, track_handler) =
+            create_player(sound.store_sound_source(mysql_pool.clone()).await?);
 
-    let _ = audio.set_volume(guild.volume as f32 / 100.0);
+        let _ = track_handler.set_volume(guild.volume as f32 / 100.0);
+
+        call_handler.play(track);
+    }
 
     sound.plays += 1;
     sound.commit(mysql_pool).await?;
 
     Ok(())
+}
+
+async fn join_channel(
+    ctx: &Context,
+    guild: Guild,
+    channel_id: ChannelId,
+) -> (Arc<Mutex<Call>>, JoinResult<()>) {
+    let songbird = songbird::get(ctx).await.unwrap();
+    let current_user = ctx.cache.current_user_id().await;
+
+    let current_voice_state = guild
+        .voice_states
+        .get(&current_user)
+        .and_then(|voice_state| voice_state.channel_id);
+
+    if current_voice_state == Some(channel_id) {
+        let call_opt = songbird.get(guild.id);
+
+        if let Some(call) = call_opt {
+            (call, Ok(()))
+        } else {
+            songbird.join(guild.id, channel_id).await
+        }
+    } else {
+        songbird.join(guild.id, channel_id).await
+    }
 }
 
 #[hook]
@@ -460,7 +494,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
             .framework(framework)
             .event_handler(Handler)
-            .register_songbird()
+            .register_songbird_with({
+                let songbird = songbird::Songbird::serenity();
+
+                songbird.set_config(Config {
+                    crypto_mode: CryptoMode::Normal,
+                    decode_mode: DecodeMode::Pass,
+                    preallocated_tracks: 0,
+                });
+
+                songbird
+            })
             .await
             .expect("Error occurred creating client");
 
@@ -525,13 +569,16 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
             match sound_res {
                 Some(sound) => {
-                    let voice_manager = songbird::get(ctx).await.unwrap();
+                    {
+                        let (call_handler, _) =
+                            join_channel(ctx, guild.clone(), user_channel).await;
 
-                    let (call_handler, _) = voice_manager.join(guild_id, user_channel).await;
+                        let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
 
-                    let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+                        let mut lock = call_handler.lock().await;
 
-                    play_audio(sound, guild_data, &mut call_handler.lock().await, pool).await?;
+                        play_audio(sound, guild_data, &mut lock, pool).await?;
+                    }
 
                     msg.channel_id
                         .say(
