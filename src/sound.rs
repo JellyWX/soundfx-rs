@@ -130,7 +130,7 @@ SELECT src
         .await
         .unwrap();
 
-        return record.src;
+        record.src
     }
 
     pub async fn store_sound_source(

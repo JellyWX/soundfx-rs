@@ -4,18 +4,18 @@ extern crate lazy_static;
 extern crate reqwest;
 
 mod error;
-mod guilddata;
+mod framework;
+mod guild_data;
 mod sound;
 
-use guilddata::GuildData;
+use guild_data::GuildData;
 use sound::Sound;
+
+use regex_command_attr::command;
 
 use serenity::{
     client::{bridge::gateway::GatewayIntents, Client, Context},
-    framework::standard::{
-        macros::{check, command, group, hook},
-        Args, CommandError, CommandResult, DispatchError, Reason, StandardFramework,
-    },
+    framework::standard::{Args, CommandResult},
     http::Http,
     model::{
         channel::{Channel, Message},
@@ -34,12 +34,11 @@ use songbird::{
     Call, SerenityInit,
 };
 
-type CheckResult = Result<(), Reason>;
-
 use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
+use crate::framework::RegexFramework;
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
 use tokio::sync::MutexGuard;
 
@@ -70,164 +69,6 @@ lazy_static! {
         dotenv().unwrap();
         env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap()
     };
-}
-
-#[group]
-#[commands(
-    info,
-    help,
-    list_sounds,
-    change_public,
-    search_sounds,
-    show_popular_sounds,
-    show_random_sounds,
-    set_greet_sound
-)]
-#[checks(self_perm_check)]
-struct AllUsers;
-
-#[group]
-#[commands(play, upload_new_sound, change_volume, delete_sound, stop_playing)]
-#[checks(self_perm_check, role_check)]
-struct RoleManagedUsers;
-
-#[group]
-#[commands(change_prefix, set_allowed_roles, allow_greet_sounds)]
-#[checks(self_perm_check, permission_check)]
-struct PermissionManagedUsers;
-
-#[check]
-#[name("self_perm_check")]
-async fn self_perm_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
-    let channel_o = msg.channel(&ctx).await;
-
-    if let Some(channel_e) = channel_o {
-        if let Channel::Guild(channel) = channel_e {
-            let permissions_r = channel
-                .permissions_for_user(&ctx, &ctx.cache.current_user_id().await)
-                .await;
-
-            if let Ok(permissions) = permissions_r {
-                if permissions.send_messages() && permissions.embed_links() {
-                    Ok(())
-                } else {
-                    Err(Reason::Log(
-                        "Bot does not have enough permissions".to_string(),
-                    ))
-                }
-            } else {
-                Err(Reason::Log("No perms found".to_string()))
-            }
-        } else {
-            Err(Reason::Log("No DM commands".to_string()))
-        }
-    } else {
-        Err(Reason::Log("Channel not available".to_string()))
-    }
-}
-
-#[check]
-#[name("role_check")]
-async fn role_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
-    async fn check_for_roles(ctx: &&Context, msg: &&Message) -> CheckResult {
-        let pool = ctx
-            .data
-            .read()
-            .await
-            .get::<MySQL>()
-            .cloned()
-            .expect("Could not get SQLPool from data");
-
-        let guild_opt = msg.guild(&ctx).await;
-
-        match guild_opt {
-            Some(guild) => {
-                let member_res = guild.member(*ctx, msg.author.id).await;
-
-                match member_res {
-                    Ok(member) => {
-                        let user_roles: String = member
-                            .roles
-                            .iter()
-                            .map(|r| (*r.as_u64()).to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ");
-
-                        let guild_id = *msg.guild_id.unwrap().as_u64();
-
-                        let role_res = sqlx::query!(
-                            "
-SELECT COUNT(1) as count
-    FROM roles
-    WHERE
-        (guild_id = ? AND role IN (?)) OR
-        (role = ?)
-                            ",
-                            guild_id,
-                            user_roles,
-                            guild_id
-                        )
-                        .fetch_one(&pool)
-                        .await;
-
-                        match role_res {
-                            Ok(role_count) => {
-                                if role_count.count > 0 {
-                                    Ok(())
-                                }
-                                else {
-                                    Err(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
-                                }
-                            }
-
-                            Err(_) => {
-                                Err(Reason::User("User has not got a sufficient role. Use `?roles` to set up role restrictions".to_string()))
-                            }
-                        }
-                    }
-
-                    Err(_) => Err(Reason::User(
-                        "Unexpected error looking up user roles".to_string(),
-                    )),
-                }
-            }
-
-            None => Err(Reason::User(
-                "Unexpected error looking up guild".to_string(),
-            )),
-        }
-    }
-
-    if perform_permission_check(ctx, &msg).await.is_ok() {
-        Ok(())
-    } else {
-        check_for_roles(&ctx, &msg).await
-    }
-}
-
-#[check]
-#[name("permission_check")]
-async fn permission_check(ctx: &Context, msg: &Message, _args: &mut Args) -> CheckResult {
-    perform_permission_check(ctx, &msg).await
-}
-
-async fn perform_permission_check(ctx: &Context, msg: &&Message) -> CheckResult {
-    if let Some(guild) = msg.guild(&ctx).await {
-        if guild
-            .member_permissions(&ctx, &msg.author)
-            .await
-            .unwrap()
-            .manage_guild()
-        {
-            Ok(())
-        } else {
-            Err(Reason::User(String::from(
-                "User needs `Manage Guild` permission",
-            )))
-        }
-    } else {
-        Err(Reason::User(String::from("Guild not cached")))
-    }
 }
 
 // create event handler for bot
@@ -403,28 +244,6 @@ async fn join_channel(
     }
 }
 
-#[hook]
-async fn log_errors(_: &Context, m: &Message, cmd_name: &str, error: Result<(), CommandError>) {
-    if let Err(e) = error {
-        println!("Error in command {} ({}): {:?}", cmd_name, m.content, e);
-    }
-}
-
-#[hook]
-async fn dispatch_error_hook(ctx: &Context, msg: &Message, error: DispatchError) {
-    match error {
-        DispatchError::CheckFailed(_f, reason) => {
-            if let Reason::User(description) = reason {
-                let _ = msg
-                    .reply(ctx, format!("You cannot do this command: {}", description))
-                    .await;
-            }
-        }
-
-        _ => {}
-    }
-}
-
 // entry point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -436,46 +255,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let logged_in_id = http.get_current_user().await?.id;
 
-    let framework = StandardFramework::new()
-        .configure(|c| {
-            c.dynamic_prefix(|ctx, msg| {
-                Box::pin(async move {
-                    let pool = ctx
-                        .data
-                        .read()
-                        .await
-                        .get::<MySQL>()
-                        .cloned()
-                        .expect("Could not get SQLPool from data");
-
-                    let guild = match msg.guild(&ctx.cache).await {
-                        Some(guild) => guild,
-
-                        None => {
-                            return Some(String::from("?"));
-                        }
-                    };
-
-                    match GuildData::get_from_id(guild.clone(), pool.clone()).await {
-                        Some(guild_data) => Some(guild_data.prefix),
-
-                        None => {
-                            GuildData::create_from_guild(guild, pool).await.unwrap();
-                            Some(String::from("?"))
-                        }
-                    }
-                })
-            })
-            .allow_dm(false)
-            .ignore_bots(true)
-            .ignore_webhooks(true)
-            .on_mention(Some(logged_in_id))
-        })
-        .group(&ALLUSERS_GROUP)
-        .group(&ROLEMANAGEDUSERS_GROUP)
-        .group(&PERMISSIONMANAGEDUSERS_GROUP)
-        .after(log_errors)
-        .on_dispatch_error(dispatch_error_hook);
+    let framework = RegexFramework::new(logged_in_id)
+        .default_prefix("?")
+        .case_insensitive(true)
+        .ignore_bots(true)
+        // info commands
+        .add_command("help", &HELP_COMMAND)
+        .add_command("info", &INFO_COMMAND)
+        .add_command("invite", &INFO_COMMAND)
+        .add_command("donate", &INFO_COMMAND)
+        .build();
 
     let mut client =
         Client::builder(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
@@ -518,8 +307,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-#[command("play")]
-#[aliases("p")]
+#[command]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,

@@ -25,7 +25,7 @@ SELECT id, prefix, volume, allow_greets
         match guild_data {
             Ok(g) => Some(g),
 
-            Err(sqlx::Error::RowNotFound) => Self::create_from_guild(guild, db_pool).await.ok(),
+            Err(sqlx::Error::RowNotFound) => Self::create_from_guild(&guild, db_pool).await.ok(),
 
             Err(e) => {
                 println!("{:?}", e);
@@ -36,7 +36,7 @@ SELECT id, prefix, volume, allow_greets
     }
 
     pub async fn create_from_guild(
-        guild: Guild,
+        guild: &Guild,
         db_pool: MySqlPool,
     ) -> Result<GuildData, Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
@@ -62,7 +62,7 @@ INSERT IGNORE INTO roles (guild_id, role)
         .await?;
 
         Ok(GuildData {
-            id: *guild.id.as_u64(),
+            id: guild.id.as_u64().to_owned(),
             prefix: String::from("?"),
             volume: 100,
             allow_greets: true,
