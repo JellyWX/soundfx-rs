@@ -457,15 +457,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     };
 
                     match GuildData::get_from_id(guild.clone(), pool.clone()).await {
-                        Some(mut guild_data) => {
-                            let name = Some(guild.name);
-
-                            if guild_data.name != name {
-                                guild_data.name = name;
-                                guild_data.commit(pool).await.unwrap();
-                            }
-                            Some(guild_data.prefix)
-                        }
+                        Some(guild_data) => Some(guild_data.prefix),
 
                         None => {
                             GuildData::create_from_guild(guild, pool).await.unwrap();

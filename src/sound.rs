@@ -111,7 +111,7 @@ SELECT name, id, plays, public, server_id, uploader_id
         }
     }
 
-    async fn get_self_src(&self, db_pool: MySqlPool) -> Vec<u8> {
+    async fn src(&self, db_pool: MySqlPool) -> Vec<u8> {
         struct Src {
             src: Vec<u8>,
         }
@@ -145,7 +145,7 @@ SELECT src
         if !path.exists() {
             let mut file = File::create(&path).await?;
 
-            file.write_all(&self.get_self_src(db_pool).await).await?;
+            file.write_all(&self.src(db_pool).await).await?;
         }
 
         Ok(ffmpeg(path_name).await.expect("FFMPEG ERROR!"))

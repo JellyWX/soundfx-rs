@@ -3,7 +3,6 @@ use sqlx::mysql::MySqlPool;
 
 pub struct GuildData {
     pub id: u64,
-    pub name: Option<String>,
     pub prefix: String,
     pub volume: u8,
     pub allow_greets: bool,
@@ -14,7 +13,7 @@ impl GuildData {
         let guild_data = sqlx::query_as_unchecked!(
             GuildData,
             "
-SELECT id, name, prefix, volume, allow_greets
+SELECT id, prefix, volume, allow_greets
     FROM servers
     WHERE id = ?
             ",
@@ -64,7 +63,6 @@ INSERT IGNORE INTO roles (guild_id, role)
 
         Ok(GuildData {
             id: *guild.id.as_u64(),
-            name: Some(guild.name.clone()),
             prefix: String::from("?"),
             volume: 100,
             allow_greets: true,
@@ -79,14 +77,12 @@ INSERT IGNORE INTO roles (guild_id, role)
             "
 UPDATE servers
 SET
-    name = ?,
     prefix = ?,
     volume = ?,
     allow_greets = ?
 WHERE
     id = ?
             ",
-            self.name,
             self.prefix,
             self.volume,
             self.allow_greets,
