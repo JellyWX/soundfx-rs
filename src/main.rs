@@ -327,6 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 #[command]
+#[permission_level(Managed)]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -447,6 +448,7 @@ There is a maximum sound limit per user. This can be removed by donating at http
 }
 
 #[command]
+#[permission_level(Managed)]
 async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -495,6 +497,7 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
 }
 
 #[command]
+#[permission_level(Restricted)]
 async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -692,6 +695,7 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
 }
 
 #[command]
+#[permission_level(Restricted)]
 async fn set_allowed_roles(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild_id = *msg.guild_id.unwrap().as_u64();
 
@@ -1105,6 +1109,7 @@ WHERE
 }
 
 #[command]
+#[permission_level(Managed)]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let voice_manager = songbird::get(ctx).await.unwrap();
 
@@ -1114,6 +1119,7 @@ async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResul
 }
 
 #[command]
+#[permission_level(Managed)]
 async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,

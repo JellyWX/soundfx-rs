@@ -44,7 +44,7 @@ impl Command {
         } else {
             let permissions = guild.member_permissions(&ctx, &member.user).await.unwrap();
 
-            if permissions.manage_guild() && self.required_perms == PermissionLevel::Managed {
+            if permissions.manage_guild() {
                 return true;
             }
 
@@ -310,9 +310,9 @@ impl Framework for RegexFramework {
                                     )
                                     .await
                                     .unwrap();
-                                } else if command.required_perms == PermissionLevel::Restricted {
-                                    let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
                                 } else if command.required_perms == PermissionLevel::Managed {
+                                    let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
+                                } else if command.required_perms == PermissionLevel::Restricted {
                                     let _ = msg
                                         .channel_id
                                         .say(&ctx, "You must be an Admin to do this command")
