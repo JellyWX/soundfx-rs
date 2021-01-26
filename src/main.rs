@@ -264,6 +264,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_command("info", &INFO_COMMAND)
         .add_command("invite", &INFO_COMMAND)
         .add_command("donate", &INFO_COMMAND)
+        // play commands
+        .add_command("play", &PLAY_COMMAND)
+        .add_command("p", &PLAY_COMMAND)
+        .add_command("stop", &STOP_PLAYING_COMMAND)
+        // sound management commands
+        .add_command("upload", &UPLOAD_NEW_SOUND_COMMAND)
+        .add_command("delete", &DELETE_SOUND_COMMAND)
+        .add_command("list", &LIST_SOUNDS_COMMAND)
+        .add_command("public", &CHANGE_PUBLIC_COMMAND)
+        // setting commands
+        .add_command("prefix", &CHANGE_PREFIX_COMMAND)
+        .add_command("roles", &SET_ALLOWED_ROLES_COMMAND)
+        .add_command("volume", &CHANGE_VOLUME_COMMAND)
+        .add_command("allow_greet", &ALLOW_GREET_SOUNDS_COMMAND)
+        .add_command("greet", &SET_GREET_SOUND_COMMAND)
+        // search commands
+        .add_command("search", &SEARCH_SOUNDS_COMMAND)
+        .add_command("popular", &SHOW_POPULAR_SOUNDS_COMMAND)
+        .add_command("random", &SHOW_RANDOM_SOUNDS_COMMAND)
         .build();
 
     let mut client =
@@ -391,9 +410,9 @@ async fn help(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     msg.channel_id
         .send_message(&ctx, |m| {
             m.embed(|e| {
-                e.title("Help")
-                    .color(THEME_COLOR)
-                    .description("Please visit our website at https://soundfx.jellywx.com/help")
+                e.title("Help").color(THEME_COLOR).description(
+                    "Please visit our website at: **https://soundfx.jellywx.com/help**",
+                )
             })
         })
         .await?;
@@ -427,7 +446,7 @@ There is a maximum sound limit per user. This can be removed by donating at http
     Ok(())
 }
 
-#[command("volume")]
+#[command]
 async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -475,7 +494,7 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
     Ok(())
 }
 
-#[command("prefix")]
+#[command]
 async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
@@ -546,7 +565,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
     Ok(())
 }
 
-#[command("upload")]
+#[command]
 async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     fn is_numeric(s: &String) -> bool {
         for char in s.chars() {
@@ -672,7 +691,7 @@ async fn upload_new_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRe
     Ok(())
 }
 
-#[command("roles")]
+#[command]
 async fn set_allowed_roles(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild_id = *msg.guild_id.unwrap().as_u64();
 
@@ -754,7 +773,7 @@ INSERT INTO roles (guild_id, role)
     Ok(())
 }
 
-#[command("list")]
+#[command]
 async fn list_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -801,7 +820,7 @@ async fn list_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult 
     Ok(())
 }
 
-#[command("public")]
+#[command]
 async fn change_public(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -851,7 +870,7 @@ async fn change_public(ctx: &Context, msg: &Message, args: Args) -> CommandResul
     Ok(())
 }
 
-#[command("delete")]
+#[command]
 async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -926,7 +945,7 @@ async fn format_search_results(
     Ok(())
 }
 
-#[command("search")]
+#[command]
 async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -952,7 +971,7 @@ async fn search_sounds(ctx: &Context, msg: &Message, args: Args) -> CommandResul
     Ok(())
 }
 
-#[command("popular")]
+#[command]
 async fn show_popular_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -979,7 +998,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     Ok(())
 }
 
-#[command("random")]
+#[command]
 async fn show_random_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -1009,7 +1028,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     Ok(())
 }
 
-#[command("greet")]
+#[command]
 async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let pool = ctx
         .data
@@ -1085,7 +1104,7 @@ WHERE
     Ok(())
 }
 
-#[command("stop")]
+#[command]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let voice_manager = songbird::get(ctx).await.unwrap();
 
@@ -1094,7 +1113,7 @@ async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResul
     Ok(())
 }
 
-#[command("allow_greet")]
+#[command]
 async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
