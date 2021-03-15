@@ -136,65 +136,76 @@ impl EventHandler for Handler {
         &self,
         ctx: Context,
         guild_id_opt: Option<GuildId>,
-        _old: Option<VoiceState>,
+        old: Option<VoiceState>,
         new: VoiceState,
     ) {
-        if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
-            if let Some(guild) = ctx.cache.guild(guild_id).await {
-                let pool = ctx
-                    .data
-                    .read()
-                    .await
-                    .get::<MySQL>()
-                    .cloned()
-                    .expect("Could not get SQLPool from data");
+        if old.is_none() {
+            if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
+                if let Some(guild) = ctx.cache.guild(guild_id).await {
+                    let pool = ctx
+                        .data
+                        .read()
+                        .await
+                        .get::<MySQL>()
+                        .cloned()
+                        .expect("Could not get SQLPool from data");
 
-                let guild_data_opt = GuildData::get_from_id(guild.clone(), pool.clone()).await;
+                    let guild_data_opt = GuildData::get_from_id(guild.clone(), pool.clone()).await;
 
-                if let Some(guild_data) = guild_data_opt {
-                    if guild_data.allow_greets {
-                        let join_id_res = sqlx::query!(
-                            "
+                    if let Some(guild_data) = guild_data_opt {
+                        if guild_data.allow_greets {
+                            let join_id_res = sqlx::query!(
+                                "
 SELECT join_sound_id
     FROM users
     WHERE user = ? AND join_sound_id IS NOT NULL
-                                ",
-                            new.user_id.as_u64()
-                        )
-                        .fetch_one(&pool)
-                        .await;
+                                    ",
+                                new.user_id.as_u64()
+                            )
+                            .fetch_one(&pool)
+                            .await;
 
-                        if let Ok(join_id_record) = join_id_res {
-                            let join_id = join_id_record.join_sound_id;
+                            if let Ok(join_id_record) = join_id_res {
+                                let join_id = join_id_record.join_sound_id;
 
-                            let mut sound = sqlx::query_as_unchecked!(
-                                Sound,
-                                "
+                                let mut sound = sqlx::query_as_unchecked!(
+                                    Sound,
+                                    "
 SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
-                                    ",
-                                join_id
-                            )
-                            .fetch_one(&pool)
-                            .await
-                            .unwrap();
+                                        ",
+                                    join_id
+                                )
+                                .fetch_one(&pool)
+                                .await
+                                .unwrap();
 
-                            let (handler, _) = join_channel(&ctx, guild, user_channel).await;
+                                let (handler, _) = join_channel(&ctx, guild, user_channel).await;
 
-                            let _ = play_audio(
-                                &mut sound,
-                                guild_data,
-                                &mut handler.lock().await,
-                                pool,
-                                false,
-                            )
-                            .await;
+                                let _ = play_audio(
+                                    &mut sound,
+                                    guild_data,
+                                    &mut handler.lock().await,
+                                    pool,
+                                    false,
+                                )
+                                .await;
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+struct LeaveInactive;
+
+#[async_trait]
+impl SongbirdEventHandler for LeaveInactive {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        None
     }
 }
 
@@ -239,7 +250,7 @@ async fn join_channel(
         .get(&current_user)
         .and_then(|voice_state| voice_state.channel_id);
 
-    if current_voice_state == Some(channel_id) {
+    let (call, res) = if current_voice_state == Some(channel_id) {
         let call_opt = songbird.get(guild.id);
 
         if let Some(call) = call_opt {
@@ -249,7 +260,14 @@ async fn join_channel(
         }
     } else {
         songbird.join(guild.id, channel_id).await
-    }
+    };
+
+    call.lock().await.add_global_event(
+        Event::Periodic(Duration::from_secs(300), None),
+        LeaveInactive {},
+    );
+
+    (call, res)
 }
 
 // entry point
