@@ -294,17 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
             .framework(framework)
             .event_handler(Handler)
-            .register_songbird_with({
-                let songbird = songbird::Songbird::serenity();
-
-                songbird.set_config(Config {
-                    crypto_mode: CryptoMode::Normal,
-                    decode_mode: DecodeMode::Pass,
-                    preallocated_tracks: 0,
-                });
-
-                songbird
-            })
+            .register_songbird()
             .await
             .expect("Error occurred creating client");
 
@@ -433,7 +423,7 @@ async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
                 .text(concat!(env!("CARGO_PKG_NAME"), " ver ", env!("CARGO_PKG_VERSION"))))
             .description(format!("Default prefix: `?`
 
-Reset prefix: `<@{0}> prefix ?`
+Reset prefix: `@{0} prefix ?`
 
 Invite me: https://discordapp.com/oauth2/authorize?client_id={1}&scope=bot&permissions=36703232
 

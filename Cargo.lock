@@ -91,8 +91,24 @@ dependencies = [
  "pin-project 1.0.4",
  "tokio",
  "tokio-rustls",
- "tungstenite",
+ "tungstenite 0.11.1",
  "webpki-roots 0.20.0",
+]
+
+[[package]]
+name = "async-tungstenite"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e00550829ef8e2c4115250d0ee43305649b0fa95f78a32ce5b07da0b73d95c5c"
+dependencies = [
+ "futures-io",
+ "futures-util",
+ "log 0.4.14",
+ "pin-project-lite",
+ "tokio",
+ "tokio-rustls",
+ "tungstenite 0.12.0",
+ "webpki-roots 0.21.0",
 ]
 
 [[package]]
@@ -794,6 +810,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "input_buffer"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f97967975f448f1a7ddb12b0bc41069d09ed6a1c161a92687e057325db35d413"
+dependencies = [
+ "bytes 1.0.1",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -999,18 +1024,6 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
-]
-
-[[package]]
-name = "nix"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
-dependencies = [
- "bitflags 1.2.1",
- "cc",
- "cfg-if 1.0.0",
- "libc",
 ]
 
 [[package]]
@@ -1696,7 +1709,6 @@ version = "1.0.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fceb2595057b6891a4ee808f70054bd2d12f0e97f1cbb78689b59f676df325a"
 dependencies = [
- "indexmap",
  "itoa",
  "ryu",
  "serde",
@@ -1732,7 +1744,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dac8367ecfd3380c00dcedf5eb9a47888ae74ae391419b5b1f7735895ed8df4"
 dependencies = [
  "async-trait",
- "async-tungstenite",
+ "async-tungstenite 0.11.0",
  "base64 0.13.0",
  "bitflags 1.2.1",
  "bytes 1.0.1",
@@ -1837,19 +1849,17 @@ dependencies = [
 
 [[package]]
 name = "songbird"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed1268c7dead3227f6a2f7dddfa1a7a2f8208ddbe7dcdf845cd754df1135724c"
+version = "0.1.4"
+source = "git+https://github.com/serenity-rs/songbird?branch=current#a9b4cb7715f104dbc7aedb9859d6553914f32879"
 dependencies = [
  "async-trait",
- "async-tungstenite",
+ "async-tungstenite 0.12.0",
  "audiopus",
  "byteorder",
  "dashmap",
  "discortp",
  "flume",
  "futures",
- "nix",
  "parking_lot",
  "rand 0.8.3",
  "serde",
@@ -1923,8 +1933,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx"
-version = "0.4.2"
-source = "git+https://github.com/launchbadge/sqlx.git#af7f2594457e991fd84a97a2170f79801fbdf1df"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2739d54a2ae9fdd0f545cb4e4b5574efb95e2ec71b7f921678e246fb20dcaaf"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -1932,8 +1943,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-core"
-version = "0.4.2"
-source = "git+https://github.com/launchbadge/sqlx.git#af7f2594457e991fd84a97a2170f79801fbdf1df"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1cad9cae4ca8947eba1a90e8ec7d3c59e7a768e2f120dc9013b669c34a90711"
 dependencies = [
  "ahash 0.6.3",
  "atoi",
@@ -1980,18 +1992,16 @@ dependencies = [
 
 [[package]]
 name = "sqlx-macros"
-version = "0.4.2"
-source = "git+https://github.com/launchbadge/sqlx.git#af7f2594457e991fd84a97a2170f79801fbdf1df"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01caee2b3935b4efe152f3262afbe51546ce3b1fc27ad61014e1b3cf5f55366e"
 dependencies = [
  "dotenv",
  "either",
  "futures",
  "heck",
- "once_cell",
  "proc-macro2",
  "quote",
- "serde",
- "serde_json",
  "sqlx-core",
  "sqlx-rt",
  "syn",
@@ -2000,8 +2010,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-rt"
-version = "0.2.0"
-source = "git+https://github.com/launchbadge/sqlx.git#af7f2594457e991fd84a97a2170f79801fbdf1df"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ce2e16b6774c671cc183e1d202386fdf9cde1e8468c1894a7f2a63eb671c4f4"
 dependencies = [
  "once_cell",
  "tokio",
@@ -2288,6 +2299,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f47026cdc4080c07e49b37087de021820269d996f581aac150ef9e5583eefe3"
 dependencies = [
  "cfg-if 1.0.0",
+ "log 0.4.14",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -2340,9 +2352,28 @@ dependencies = [
  "bytes 0.5.6",
  "http",
  "httparse",
- "input_buffer",
+ "input_buffer 0.3.1",
  "log 0.4.14",
  "rand 0.7.3",
+ "sha-1",
+ "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ada8297e8d70872fa9a551d93250a9f407beb9f37ef86494eb20012a2ff7c24"
+dependencies = [
+ "base64 0.13.0",
+ "byteorder",
+ "bytes 1.0.1",
+ "http",
+ "httparse",
+ "input_buffer 0.4.0",
+ "log 0.4.14",
+ "rand 0.8.3",
  "sha-1",
  "url",
  "utf-8",
