@@ -4,8 +4,8 @@ use sqlx::mysql::MySqlPool;
 
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
-use songbird::ffmpeg;
-use songbird::input::Input;
+use songbird::input::restartable::Restartable;
+
 use std::{env, path::Path};
 
 pub struct Sound {
@@ -136,7 +136,7 @@ SELECT src
     pub async fn store_sound_source(
         &self,
         db_pool: MySqlPool,
-    ) -> Result<Input, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Restartable, Box<dyn std::error::Error + Send + Sync>> {
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
         let path_name = format!("{}/sound-{}", caching_location, self.id);
@@ -148,7 +148,9 @@ SELECT src
             file.write_all(&self.src(db_pool).await).await?;
         }
 
-        Ok(ffmpeg(path_name).await.expect("FFMPEG ERROR!"))
+        Ok(Restartable::ffmpeg(path_name, false)
+            .await
+            .expect("FFMPEG ERROR!"))
     }
 
     pub async fn count_user_sounds(

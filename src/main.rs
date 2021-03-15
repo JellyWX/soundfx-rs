@@ -27,12 +27,7 @@ use serenity::{
     utils::shard_id,
 };
 
-use songbird::{
-    create_player,
-    driver::{Config, CryptoMode, DecodeMode},
-    error::JoinResult,
-    Call, SerenityInit,
-};
+use songbird::{create_player, error::JoinResult, Call, SerenityInit};
 
 use sqlx::mysql::MySqlPool;
 
@@ -186,9 +181,14 @@ SELECT name, id, plays, public, server_id, uploader_id
 
                             let (handler, _) = join_channel(&ctx, guild, user_channel).await;
 
-                            let _ =
-                                play_audio(&mut sound, guild_data, &mut handler.lock().await, pool)
-                                    .await;
+                            let _ = play_audio(
+                                &mut sound,
+                                guild_data,
+                                &mut handler.lock().await,
+                                pool,
+                                false,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -202,12 +202,19 @@ async fn play_audio(
     guild: GuildData,
     call_handler: &mut MutexGuard<'_, Call>,
     mysql_pool: MySqlPool,
+    loop_: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     {
         let (track, track_handler) =
-            create_player(sound.store_sound_source(mysql_pool.clone()).await?);
+            create_player(sound.store_sound_source(mysql_pool.clone()).await?.into());
 
         let _ = track_handler.set_volume(guild.volume as f32 / 100.0);
+
+        if loop_ {
+            let _ = track_handler.enable_loop();
+        } else {
+            let _ = track_handler.disable_loop();
+        }
 
         call_handler.play(track);
     }
@@ -247,6 +254,8 @@ async fn join_channel(
 // entry point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    env_logger::init();
+
     dotenv()?;
 
     let token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");
@@ -265,6 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_command("invite", &INFO_COMMAND)
         .add_command("donate", &INFO_COMMAND)
         // play commands
+        .add_command("loop", &LOOP_PLAY_COMMAND)
         .add_command("play", &PLAY_COMMAND)
         .add_command("p", &PLAY_COMMAND)
         .add_command("stop", &STOP_PLAYING_COMMAND)
@@ -319,6 +329,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 #[command]
 #[permission_level(Managed)]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    play_cmd(ctx, msg, args, false).await
+}
+
+#[command]
+#[permission_level(Managed)]
+async fn loop_play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    play_cmd(ctx, msg, args, true).await
+}
+
+async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> CommandResult {
     let guild = match msg.guild(&ctx.cache).await {
         Some(guild) => guild,
 
@@ -367,7 +387,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
                         let mut lock = call_handler.lock().await;
 
-                        play_audio(sound, guild_data, &mut lock, pool).await?;
+                        play_audio(sound, guild_data, &mut lock, pool, loop_).await?;
                     }
 
                     msg.channel_id
@@ -392,6 +412,16 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 .await?;
         }
     }
+
+    Ok(())
+}
+
+#[command]
+#[permission_level(Managed)]
+async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let voice_manager = songbird::get(ctx).await.unwrap();
+
+    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
 
     Ok(())
 }
@@ -1094,16 +1124,6 @@ WHERE
             }
         }
     }
-
-    Ok(())
-}
-
-#[command]
-#[permission_level(Managed)]
-async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    let voice_manager = songbird::get(ctx).await.unwrap();
-
-    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
 
     Ok(())
 }
