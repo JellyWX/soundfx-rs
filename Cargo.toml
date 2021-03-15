@@ -15,6 +15,7 @@ env_logger = "0.8"
 songbird = { git = "https://github.com/serenity-rs/songbird", branch = "current" }
 regex = "1.4"
 log = "0.4"
+serde_json = "1.0"
 
 [dependencies.regex_command_attr]
 path = "./regex_command_attr"

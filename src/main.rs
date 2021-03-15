@@ -14,11 +14,12 @@ use sound::Sound;
 use regex_command_attr::command;
 
 use serenity::{
+    async_trait,
     client::{bridge::gateway::GatewayIntents, Client, Context},
     framework::standard::{Args, CommandResult},
     http::Http,
     model::{
-        channel::{Channel, Message},
+        channel::Message,
         guild::Guild,
         id::{ChannelId, GuildId, RoleId},
         voice::VoiceState,
@@ -27,14 +28,21 @@ use serenity::{
     utils::shard_id,
 };
 
-use songbird::{create_player, error::JoinResult, Call, SerenityInit};
+use songbird::{
+    create_player,
+    error::JoinResult,
+    events::EventHandler as SongbirdEventHandler,
+    ffmpeg,
+    input::{cached::Memory, Input},
+    Call, Event, EventContext, SerenityInit,
+};
 
 use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
 use crate::framework::RegexFramework;
-use std::{collections::HashMap, env, sync::Arc, time::Duration};
+use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::MutexGuard;
 
 struct MySQL;
@@ -47,6 +55,12 @@ struct ReqwestClient;
 
 impl TypeMapKey for ReqwestClient {
     type Value = Arc<reqwest::Client>;
+}
+
+struct AudioIndex;
+
+impl TypeMapKey for AudioIndex {
+    type Value = Arc<HashMap<String, String>>;
 }
 
 static THEME_COLOR: u32 = 0x00e0f3;
@@ -122,23 +136,10 @@ impl EventHandler for Handler {
         &self,
         ctx: Context,
         guild_id_opt: Option<GuildId>,
-        old: Option<VoiceState>,
+        _old: Option<VoiceState>,
         new: VoiceState,
     ) {
-        if let Some(past_state) = old {
-            if let (Some(guild_id), None) = (guild_id_opt, new.channel_id) {
-                if let Some(channel_id) = past_state.channel_id {
-                    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await
-                    {
-                        if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
-                            let voice_manager = songbird::get(&ctx).await.unwrap();
-
-                            let _ = voice_manager.leave(guild_id).await;
-                        }
-                    }
-                }
-            }
-        } else if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
+        if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
             if let Some(guild) = ctx.cache.guild(guild_id).await {
                 let pool = ctx
                     .data
@@ -264,7 +265,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let logged_in_id = http.get_current_user().await?.id;
 
-    let framework = RegexFramework::new(logged_in_id)
+    let audio_index = if let Ok(static_audio) = std::fs::read_to_string("audio/audio.json") {
+        if let Ok(json) = serde_json::from_str::<HashMap<String, String>>(&static_audio) {
+            Some(json)
+        } else {
+            println!(
+                "Invalid `audio.json` file. Not loading static audio or providing ambience command"
+            );
+
+            None
+        }
+    } else {
+        println!("No `audio.json` file. Not loading static audio or providing ambience command");
+
+        None
+    };
+
+    let mut framework = RegexFramework::new(logged_in_id)
         .default_prefix("?")
         .case_insensitive(true)
         .ignore_bots(true)
@@ -292,8 +309,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // search commands
         .add_command("search", &SEARCH_SOUNDS_COMMAND)
         .add_command("popular", &SHOW_POPULAR_SOUNDS_COMMAND)
-        .add_command("random", &SHOW_RANDOM_SOUNDS_COMMAND)
-        .build();
+        .add_command("random", &SHOW_RANDOM_SOUNDS_COMMAND);
+
+    if audio_index.is_some() {
+        framework = framework.add_command("ambience", &PLAY_AMBIENCE_COMMAND);
+    }
+
+    framework = framework.build();
 
     let mut client =
         Client::builder(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
@@ -319,6 +341,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         data.insert::<MySQL>(mysql_pool);
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
+
+        if let Some(audio_index) = audio_index {
+            data.insert::<AudioIndex>(Arc::new(audio_index));
+        }
     }
 
     client.start_autosharded().await?;
@@ -416,12 +442,114 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
     Ok(())
 }
 
+struct RestartTrack;
+
+#[async_trait]
+impl SongbirdEventHandler for RestartTrack {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(&[(_state, track)]) = ctx {
+            let _ = track.seek_time(Default::default());
+        }
+
+        None
+    }
+}
+
+#[command]
+#[permission_level(Managed)]
+async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let guild = match msg.guild(&ctx.cache).await {
+        Some(guild) => guild,
+
+        None => {
+            return Ok(());
+        }
+    };
+
+    let channel_to_join = guild
+        .voice_states
+        .get(&msg.author.id)
+        .and_then(|voice_state| voice_state.channel_id);
+
+    match channel_to_join {
+        Some(user_channel) => {
+            let search_name = args.rest().to_lowercase();
+            let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
+            let pool = ctx.data.read().await.get::<MySQL>().cloned().unwrap();
+
+            if let Some(filename) = audio_index.get(&search_name) {
+                {
+                    let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
+
+                    let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+
+                    let mut lock = call_handler.lock().await;
+
+                    // stop anything currently playing
+                    lock.stop();
+
+                    let (track, track_handler) = create_player(
+                        Input::try_from(
+                            Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    );
+
+                    let _ = track_handler.set_volume(guild_data.volume as f32 / 100.0);
+                    let _ = track_handler.add_event(
+                        Event::Periodic(
+                            track_handler.metadata().duration.unwrap() - Duration::from_millis(500),
+                            None,
+                        ),
+                        RestartTrack {},
+                    );
+
+                    lock.play(track);
+                }
+
+                msg.channel_id
+                    .say(&ctx, format!("Playing ambience **{}**", search_name))
+                    .await?;
+            } else {
+                msg.channel_id
+                    .send_message(&ctx, |m| {
+                        m.embed(|e| {
+                            e.title("Not Found").description(format!(
+                                "Could not find ambience sound by name **{}**
+
+__Available ambience sounds:__
+{}",
+                                search_name,
+                                audio_index
+                                    .keys()
+                                    .into_iter()
+                                    .map(|i| i.as_str())
+                                    .collect::<Vec<&str>>()
+                                    .join("\n")
+                            ))
+                        })
+                    })
+                    .await?;
+            }
+        }
+
+        None => {
+            msg.channel_id
+                .say(&ctx, "You are not in a voice chat!")
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[command]
 #[permission_level(Managed)]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let voice_manager = songbird::get(ctx).await.unwrap();
 
-    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
+    let _ = voice_manager.remove(msg.guild_id.unwrap()).await;
 
     Ok(())
 }
@@ -460,6 +588,11 @@ Invite me: https://discordapp.com/oauth2/authorize?client_id={1}&scope=bot&permi
 **Welcome to SoundFX!**
 Developer: <@203532103185465344>
 Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
+
+**Sound Credits**
+\"The rain falls against the parasol\" https://freesound.org/people/straget/
+\"Heavy Rain\" https://freesound.org/people/lebaston100/
+\"Rain on Windows, Interior, A\" https://freesound.org/people/InspectorJ/
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
 There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", current_user.name, current_user.id.as_u64())))).await?;
