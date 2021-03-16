@@ -34,7 +34,7 @@ use songbird::{
     events::EventHandler as SongbirdEventHandler,
     ffmpeg,
     input::{cached::Memory, Input},
-    Call, Event, EventContext, SerenityInit,
+    Call, Event, EventContext, SerenityInit, Songbird,
 };
 
 use sqlx::mysql::MySqlPool;
@@ -42,6 +42,7 @@ use sqlx::mysql::MySqlPool;
 use dotenv::dotenv;
 
 use crate::framework::RegexFramework;
+use songbird::tracks::PlayMode;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::MutexGuard;
 
@@ -63,21 +64,16 @@ impl TypeMapKey for AudioIndex {
     type Value = Arc<HashMap<String, String>>;
 }
 
-static THEME_COLOR: u32 = 0x00e0f3;
+const THEME_COLOR: u32 = 0x00e0f3;
 
 lazy_static! {
-    static ref MAX_SOUNDS: u32 = {
-        dotenv().unwrap();
-        env::var("MAX_SOUNDS").unwrap().parse::<u32>().unwrap()
-    };
-    static ref PATREON_GUILD: u64 = {
-        dotenv().unwrap();
-        env::var("PATREON_GUILD").unwrap().parse::<u64>().unwrap()
-    };
-    static ref PATREON_ROLE: u64 = {
-        dotenv().unwrap();
-        env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap()
-    };
+    static ref MAX_SOUNDS: u32 = env::var("MAX_SOUNDS").unwrap().parse::<u32>().unwrap();
+    static ref PATREON_GUILD: u64 = env::var("PATREON_GUILD").unwrap().parse::<u64>().unwrap();
+    static ref PATREON_ROLE: u64 = env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap();
+    static ref AUTODISCONNECT_TIMER: u64 = env::var("AUTODISCONNECT_TIMER")
+        .unwrap_or("300")
+        .parse::<u64>()
+        .unwrap();
 }
 
 // create event handler for bot
@@ -200,11 +196,19 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 }
 
-struct LeaveInactive;
+struct LeaveInactive {
+    guild_id: GuildId,
+    songbird: Arc<Songbird>,
+}
 
 #[async_trait]
 impl SongbirdEventHandler for LeaveInactive {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        // if there are no tracks playing then leave
+        if let EventContext::Track([]) = ctx {
+            self.songbird.remove(self.guild_id).await.unwrap();
+        }
+
         None
     }
 }
@@ -263,8 +267,11 @@ async fn join_channel(
     };
 
     call.lock().await.add_global_event(
-        Event::Periodic(Duration::from_secs(300), None),
-        LeaveInactive {},
+        Event::Periodic(Duration::from_secs(*AUTODISCONNECT_TIMER), None),
+        LeaveInactive {
+            guild_id: guild.id,
+            songbird,
+        },
     );
 
     (call, res)
