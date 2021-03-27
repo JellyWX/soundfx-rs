@@ -618,6 +618,8 @@ Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
 \"The rain falls against the parasol\" https://freesound.org/people/straget/
 \"Heavy Rain\" https://freesound.org/people/lebaston100/
 \"Rain on Windows, Interior, A\" https://freesound.org/people/InspectorJ/
+\"Seaside Waves, Close, A\" https://freesound.org/people/InspectorJ/
+\"Small River 1 - Fast - Close\" https://freesound.org/people/Pfannkuchn/
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
 There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", current_user.name, current_user.id.as_u64())))).await?;
