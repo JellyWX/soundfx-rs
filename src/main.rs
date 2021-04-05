@@ -34,7 +34,7 @@ use songbird::{
     events::EventHandler as SongbirdEventHandler,
     ffmpeg,
     input::{cached::Memory, Input},
-    Call, Event, EventContext, SerenityInit, Songbird,
+    Call, Event, EventContext, SerenityInit,
 };
 
 use sqlx::mysql::MySqlPool;
@@ -42,7 +42,6 @@ use sqlx::mysql::MySqlPool;
 use dotenv::dotenv;
 
 use crate::framework::RegexFramework;
-use songbird::tracks::PlayMode;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::MutexGuard;
 
@@ -71,7 +70,7 @@ lazy_static! {
     static ref PATREON_GUILD: u64 = env::var("PATREON_GUILD").unwrap().parse::<u64>().unwrap();
     static ref PATREON_ROLE: u64 = env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap();
     static ref AUTODISCONNECT_TIMER: u64 = env::var("AUTODISCONNECT_TIMER")
-        .unwrap_or("300")
+        .unwrap_or("300".to_string())
         .parse::<u64>()
         .unwrap();
 }
@@ -196,23 +195,6 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 }
 
-struct LeaveInactive {
-    guild_id: GuildId,
-    songbird: Arc<Songbird>,
-}
-
-#[async_trait]
-impl SongbirdEventHandler for LeaveInactive {
-    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
-        // if there are no tracks playing then leave
-        if let EventContext::Track([]) = ctx {
-            self.songbird.remove(self.guild_id).await.unwrap();
-        }
-
-        None
-    }
-}
-
 async fn play_audio(
     sound: &mut Sound,
     guild: GuildData,
@@ -265,14 +247,6 @@ async fn join_channel(
     } else {
         songbird.join(guild.id, channel_id).await
     };
-
-    call.lock().await.add_global_event(
-        Event::Periodic(Duration::from_secs(*AUTODISCONNECT_TIMER), None),
-        LeaveInactive {
-            guild_id: guild.id,
-            songbird,
-        },
-    );
 
     (call, res)
 }
