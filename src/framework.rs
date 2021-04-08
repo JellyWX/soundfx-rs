@@ -19,7 +19,7 @@ use regex::{Match, Regex, RegexBuilder};
 
 use std::{collections::HashMap, fmt};
 
-use crate::{guild_data::GuildData, MySQL};
+use crate::{guild_data::CtxGuildData, MySQL};
 use serenity::framework::standard::{CommandResult, Delimiter};
 
 type CommandFn = for<'fut> fn(&'fut Context, &'fut Message, Args) -> BoxFuture<'fut, CommandResult>;
@@ -252,24 +252,11 @@ impl Framework for RegexFramework {
 
         async fn check_prefix(ctx: &Context, guild: &Guild, prefix_opt: Option<Match<'_>>) -> bool {
             if let Some(prefix) = prefix_opt {
-                let pool = ctx
-                    .data
-                    .read()
-                    .await
-                    .get::<MySQL>()
-                    .cloned()
-                    .expect("Could not get SQLPool from data");
+                match ctx.get_from_id(guild.id).await {
+                    Ok(guild_data) => prefix.as_str() == guild_data.read().await.prefix,
 
-                let guild_prefix = match GuildData::get_from_id(guild.clone(), pool.clone()).await {
-                    Some(guild_data) => guild_data.prefix,
-
-                    None => {
-                        GuildData::create_from_guild(guild, pool).await.unwrap();
-                        String::from("?")
-                    }
-                };
-
-                guild_prefix.as_str() == prefix.as_str()
+                    Err(_) => prefix.as_str() == "?",
+                }
             } else {
                 true
             }

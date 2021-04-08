@@ -41,9 +41,10 @@ use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
-use crate::framework::RegexFramework;
+use crate::{framework::RegexFramework, guild_data::CtxGuildData};
+use dashmap::DashMap;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
-use tokio::sync::MutexGuard;
+use tokio::sync::{MutexGuard, RwLock};
 
 struct MySQL;
 
@@ -61,6 +62,12 @@ struct AudioIndex;
 
 impl TypeMapKey for AudioIndex {
     type Value = Arc<HashMap<String, String>>;
+}
+
+struct GuildDataCache;
+
+impl TypeMapKey for GuildDataCache {
+    type Value = Arc<DashMap<GuildId, Arc<RwLock<GuildData>>>>;
 }
 
 const THEME_COLOR: u32 = 0x00e0f3;
@@ -145,10 +152,20 @@ impl EventHandler for Handler {
                         .cloned()
                         .expect("Could not get SQLPool from data");
 
-                    let guild_data_opt = GuildData::get_from_id(guild.clone(), pool.clone()).await;
+                    let guild_data_opt = ctx.get_from_id(guild.id).await;
 
-                    if let Some(guild_data) = guild_data_opt {
-                        if guild_data.allow_greets {
+                    if let Ok(guild_data) = guild_data_opt {
+                        let volume;
+                        let allowed_greets;
+
+                        {
+                            let read = guild_data.read().await;
+
+                            volume = read.volume;
+                            allowed_greets = read.allow_greets;
+                        }
+
+                        if allowed_greets {
                             let join_id_res = sqlx::query!(
                                 "
 SELECT join_sound_id
@@ -180,7 +197,7 @@ SELECT name, id, plays, public, server_id, uploader_id
 
                                 let _ = play_audio(
                                     &mut sound,
-                                    guild_data,
+                                    volume,
                                     &mut handler.lock().await,
                                     pool,
                                     false,
@@ -197,7 +214,7 @@ SELECT name, id, plays, public, server_id, uploader_id
 
 async fn play_audio(
     sound: &mut Sound,
-    guild: GuildData,
+    volume: u8,
     call_handler: &mut MutexGuard<'_, Call>,
     mysql_pool: MySqlPool,
     loop_: bool,
@@ -206,7 +223,7 @@ async fn play_audio(
         let (track, track_handler) =
             create_player(sound.store_sound_source(mysql_pool.clone()).await?.into());
 
-        let _ = track_handler.set_volume(guild.volume as f32 / 100.0);
+        let _ = track_handler.set_volume(volume as f32 / 100.0);
 
         if loop_ {
             let _ = track_handler.enable_loop();
@@ -240,12 +257,31 @@ async fn join_channel(
         let call_opt = songbird.get(guild.id);
 
         if let Some(call) = call_opt {
+            {
+                // set call to deafen
+                let _ = call.lock().await.deafen(true).await;
+            }
+
             (call, Ok(()))
         } else {
-            songbird.join(guild.id, channel_id).await
+            let (call, res) = songbird.join(guild.id, channel_id).await;
+
+            {
+                // set call to deafen
+                let _ = call.lock().await.deafen(true).await;
+            }
+
+            (call, res)
         }
     } else {
-        songbird.join(guild.id, channel_id).await
+        let (call, res) = songbird.join(guild.id, channel_id).await;
+
+        {
+            // set call to deafen
+            let _ = call.lock().await.deafen(true).await;
+        }
+
+        (call, res)
     };
 
     (call, res)
@@ -335,8 +371,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await
                 .unwrap();
 
+        let guild_data_cache = Arc::new(DashMap::new());
+
         let mut data = client.data.write().await;
 
+        data.insert::<GuildDataCache>(guild_data_cache);
         data.insert::<MySQL>(mysql_pool);
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
@@ -408,11 +447,18 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
                         let (call_handler, _) =
                             join_channel(ctx, guild.clone(), user_channel).await;
 
-                        let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+                        let guild_data = ctx.get_from_id(guild).await.unwrap();
 
                         let mut lock = call_handler.lock().await;
 
-                        play_audio(sound, guild_data, &mut lock, pool, loop_).await?;
+                        play_audio(
+                            sound,
+                            guild_data.read().await.volume,
+                            &mut lock,
+                            pool,
+                            loop_,
+                        )
+                        .await?;
                     }
 
                     msg.channel_id
@@ -474,13 +520,12 @@ async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResul
         Some(user_channel) => {
             let search_name = args.rest().to_lowercase();
             let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
-            let pool = ctx.data.read().await.get::<MySQL>().cloned().unwrap();
 
             if let Some(filename) = audio_index.get(&search_name) {
                 {
                     let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
 
-                    let guild_data = GuildData::get_from_id(guild, pool.clone()).await.unwrap();
+                    let guild_data = ctx.get_from_id(guild).await.unwrap();
 
                     let mut lock = call_handler.lock().await;
 
@@ -495,7 +540,7 @@ async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResul
                         .unwrap(),
                     );
 
-                    let _ = track_handler.set_volume(guild_data.volume as f32 / 100.0);
+                    let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
                     let _ = track_handler.add_event(
                         Event::Periodic(
                             track_handler.metadata().duration.unwrap() - Duration::from_millis(500),
@@ -604,14 +649,6 @@ There is a maximum sound limit per user. This can be removed by donating at http
 #[command]
 #[permission_level(Managed)]
 async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let guild = match msg.guild(&ctx.cache).await {
-        Some(guild) => guild,
-
-        None => {
-            return Ok(());
-        }
-    };
-
     let pool = ctx
         .data
         .read()
@@ -620,15 +657,15 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
-    let mut guild_data = guild_data_opt.unwrap();
+    let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
+    let guild_data = guild_data_opt.unwrap();
 
     if args.len() == 1 {
         match args.single::<u8>() {
             Ok(volume) => {
-                guild_data.volume = volume;
+                guild_data.write().await.volume = volume;
 
-                guild_data.commit(pool).await?;
+                guild_data.read().await.commit(pool).await?;
 
                 msg.channel_id
                     .say(&ctx, format!("Volume changed to {}%", volume))
@@ -636,15 +673,19 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
             }
 
             Err(_) => {
+                let read = guild_data.read().await;
+
                 msg.channel_id.say(&ctx,
                                    format!("Current server volume: {vol}%. Change the volume with ```{prefix}volume <new volume>```",
-                                           vol = guild_data.volume, prefix = guild_data.prefix)).await?;
+                                           vol = read.volume, prefix = read.prefix)).await?;
             }
         }
     } else {
+        let read = guild_data.read().await;
+
         msg.channel_id.say(&ctx,
                            format!("Current server volume: {vol}%. Change the volume with ```{prefix}volume <new volume>```",
-                                   vol = guild_data.volume, prefix = guild_data.prefix)).await?;
+                                   vol = read.volume, prefix = read.prefix)).await?;
     }
 
     Ok(())
@@ -653,14 +694,6 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
 #[command]
 #[permission_level(Restricted)]
 async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let guild = match msg.guild(&ctx.cache).await {
-        Some(guild) => guild,
-
-        None => {
-            return Ok(());
-        }
-    };
-
     let pool = ctx
         .data
         .read()
@@ -669,10 +702,10 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let mut guild_data;
+    let guild_data;
 
     {
-        let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
+        let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
 
         guild_data = guild_data_opt.unwrap();
     }
@@ -681,13 +714,19 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         match args.single::<String>() {
             Ok(prefix) => {
                 if prefix.len() <= 5 {
-                    guild_data.prefix = prefix;
+                    let reply = format!("Prefix changed to `{}`", prefix);
 
-                    guild_data.commit(pool).await?;
+                    {
+                        guild_data.write().await.prefix = prefix;
+                    }
 
-                    msg.channel_id
-                        .say(&ctx, format!("Prefix changed to `{}`", guild_data.prefix))
-                        .await?;
+                    {
+                        let read = guild_data.read().await;
+
+                        read.commit(pool).await?;
+                    }
+
+                    msg.channel_id.say(&ctx, reply).await?;
                 } else {
                     msg.channel_id
                         .say(&ctx, "Prefix must be less than 5 characters long")
@@ -701,7 +740,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
                         &ctx,
                         format!(
                             "Usage: `{prefix}prefix <new prefix>`",
-                            prefix = guild_data.prefix
+                            prefix = guild_data.read().await.prefix
                         ),
                     )
                     .await?;
@@ -713,7 +752,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
                 &ctx,
                 format!(
                     "Usage: `{prefix}prefix <new prefix>`",
-                    prefix = guild_data.prefix
+                    prefix = guild_data.read().await.prefix
                 ),
             )
             .await?;
@@ -1265,14 +1304,6 @@ WHERE
 #[command]
 #[permission_level(Managed)]
 async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    let guild = match msg.guild(&ctx.cache).await {
-        Some(guild) => guild,
-
-        None => {
-            return Ok(());
-        }
-    };
-
     let pool = ctx
         .data
         .read()
@@ -1281,19 +1312,23 @@ async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comman
         .cloned()
         .expect("Could not acquire SQL pool from data");
 
-    let guild_data_opt = GuildData::get_from_id(guild, pool.clone()).await;
+    let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
 
-    if let Some(mut guild_data) = guild_data_opt {
-        guild_data.allow_greets = !guild_data.allow_greets;
+    if let Ok(guild_data) = guild_data_opt {
+        let current = guild_data.read().await.allow_greets;
 
-        guild_data.commit(pool).await?;
+        {
+            guild_data.write().await.allow_greets = !current;
+        }
+
+        guild_data.read().await.commit(pool).await?;
 
         msg.channel_id
             .say(
                 &ctx,
                 format!(
                     "Greet sounds have been {}abled in this server",
-                    if guild_data.allow_greets { "en" } else { "dis" }
+                    if !current { "en" } else { "dis" }
                 ),
             )
             .await?;

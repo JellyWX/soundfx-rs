@@ -1840,6 +1840,7 @@ dependencies = [
 name = "soundfx-rs"
 version = "1.2.0"
 dependencies = [
+ "dashmap",
  "dotenv",
  "env_logger",
  "lazy_static",
