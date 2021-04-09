@@ -43,6 +43,7 @@ use dotenv::dotenv;
 
 use crate::{framework::RegexFramework, guild_data::CtxGuildData};
 use dashmap::DashMap;
+use serenity::model::channel::Channel;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::{MutexGuard, RwLock};
 
@@ -141,69 +142,80 @@ impl EventHandler for Handler {
         old: Option<VoiceState>,
         new: VoiceState,
     ) {
-        if old.is_none() {
-            if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
-                if let Some(guild) = ctx.cache.guild(guild_id).await {
-                    let pool = ctx
-                        .data
-                        .read()
-                        .await
-                        .get::<MySQL>()
-                        .cloned()
-                        .expect("Could not get SQLPool from data");
+        if let Some(past_state) = old {
+            if let (Some(guild_id), None) = (guild_id_opt, new.channel_id) {
+                if let Some(channel_id) = past_state.channel_id {
+                    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await
+                    {
+                        if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
+                            let songbird = songbird::get(&ctx).await.unwrap();
 
-                    let guild_data_opt = ctx.get_from_id(guild.id).await;
-
-                    if let Ok(guild_data) = guild_data_opt {
-                        let volume;
-                        let allowed_greets;
-
-                        {
-                            let read = guild_data.read().await;
-
-                            volume = read.volume;
-                            allowed_greets = read.allow_greets;
+                            let _ = songbird.remove(guild_id).await;
                         }
+                    }
+                }
+            }
+        } else if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
+            if let Some(guild) = ctx.cache.guild(guild_id).await {
+                let pool = ctx
+                    .data
+                    .read()
+                    .await
+                    .get::<MySQL>()
+                    .cloned()
+                    .expect("Could not get SQLPool from data");
 
-                        if allowed_greets {
-                            let join_id_res = sqlx::query!(
-                                "
+                let guild_data_opt = ctx.get_from_id(guild.id).await;
+
+                if let Ok(guild_data) = guild_data_opt {
+                    let volume;
+                    let allowed_greets;
+
+                    {
+                        let read = guild_data.read().await;
+
+                        volume = read.volume;
+                        allowed_greets = read.allow_greets;
+                    }
+
+                    if allowed_greets {
+                        let join_id_res = sqlx::query!(
+                            "
 SELECT join_sound_id
     FROM users
     WHERE user = ? AND join_sound_id IS NOT NULL
                                     ",
-                                new.user_id.as_u64()
-                            )
-                            .fetch_one(&pool)
-                            .await;
+                            new.user_id.as_u64()
+                        )
+                        .fetch_one(&pool)
+                        .await;
 
-                            if let Ok(join_id_record) = join_id_res {
-                                let join_id = join_id_record.join_sound_id;
+                        if let Ok(join_id_record) = join_id_res {
+                            let join_id = join_id_record.join_sound_id;
 
-                                let mut sound = sqlx::query_as_unchecked!(
-                                    Sound,
-                                    "
+                            let mut sound = sqlx::query_as_unchecked!(
+                                Sound,
+                                "
 SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
                                         ",
-                                    join_id
-                                )
-                                .fetch_one(&pool)
-                                .await
-                                .unwrap();
+                                join_id
+                            )
+                            .fetch_one(&pool)
+                            .await
+                            .unwrap();
 
-                                let (handler, _) = join_channel(&ctx, guild, user_channel).await;
+                            let (handler, _) = join_channel(&ctx, guild, user_channel).await;
 
-                                let _ = play_audio(
-                                    &mut sound,
-                                    volume,
-                                    &mut handler.lock().await,
-                                    pool,
-                                    false,
-                                )
-                                .await;
-                            }
+                            let _ = play_audio(
+                                &mut sound,
+                                volume,
+                                &mut handler.lock().await,
+                                pool,
+                                false,
+                            )
+                            .await;
                         }
                     }
                 }
