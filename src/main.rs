@@ -165,7 +165,7 @@ impl EventHandler for Handler {
                     .cloned()
                     .expect("Could not get SQLPool from data");
 
-                let guild_data_opt = ctx.get_from_id(guild.id).await;
+                let guild_data_opt = ctx.guild_data(guild.id).await;
 
                 if let Ok(guild_data) = guild_data_opt {
                     let volume;
@@ -403,6 +403,128 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 #[command]
+async fn help(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    if args.is_empty() {
+        let description = {
+            let guild_data = ctx.guild_data(msg.guild_id.unwrap()).await.unwrap();
+
+            let read_lock = guild_data.read().await;
+
+            format!(
+                "Type `{}help category` to view help for a command category below:",
+                read_lock.prefix
+            )
+        };
+
+        msg.channel_id
+            .send_message(&ctx, |m| {
+                m.embed(|e| {
+                    e.title("Help")
+                        .color(THEME_COLOR)
+                        .description(description)
+                        .field("Info", "`help` `info` `invite` `donate`", false)
+                        .field("Play", "`play` `p` `stop` `loop`", false)
+                        .field("Manage", "`upload` `delete` `list` `public`", false)
+                        .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
+                        .field("Search", "`search` `random` `popular`", false)
+                        .field("Other", "`greet` `ambience`", false)
+                })
+            })
+            .await?;
+    } else {
+        let body = match args.rest().to_lowercase().as_str() {
+            "info" => {
+                "__Info Commands__
+`help` - view all commands
+`help [category]` - view help for the commands in a category
+
+`info` - view information about the bot
+
+`invite` - get an invite link for the bot
+
+`donate` - view information about the Patreon
+                "
+            }
+            "play" => {
+                "__Play Commands__
+`play [sound]` - play a sound matching the name \"sound\"
+`play [id]` - play the sound with numerical ID `id`
+
+`p` - an alias for `play`
+
+`stop` - stop the bot from playing
+
+`loop [sound]` - play a sound matching the name \"sound\" on loop
+`loop [id]` - play a sound matching the numerical ID `id` on loop
+                "
+            }
+            "manage" => {
+                "__Manage Commands__
+`upload [name]` - upload a new sound effect to the name \"name\"
+
+`delete [name]` - delete a sound you have uploaded under the name \"name\"
+
+`list` - list sounds uploaded on the server you are on
+`list me` - list sounds you have uploaded to any server
+
+`public [name]` - make a sound you have uploaded public or private
+                "
+            }
+            "settings" => {
+                "__Settings Commands__
+`prefix [new prefix]` - change the prefix of the bot
+
+`roles [role list]` - set which roles can use the bot
+`roles off` - allow all users to use the bot
+
+`volume [new volume]` - change the volume of the bot
+
+`allow_greet` - toggle whether users in your server can use greet sounds
+                "
+            }
+            "search" => {
+                "__Search Commands__
+`search [term]` - search for sounds matching \"term\"
+
+`random` - find some random sounds on the bot
+
+`popular` - find the most played sounds on the bot
+                "
+            }
+            "other" => {
+                "__Other Commands__
+`greet [name]` - set your greet sound (join sound) to the sound called \"name\"
+`greet [id]` - set your greet sound (join sound) to the sound with numerical ID `id`
+
+`ambience` - view a list of ambience sounds
+`ambience [name]` - set an ambience sound playing
+                "
+            }
+            _ => {
+                "__Unrecognised Category__
+Please select a category from the following:
+
+`info`
+`play`
+`manage`
+`settings`
+`search`
+`other`
+                "
+            }
+        };
+
+        msg.channel_id
+            .send_message(&ctx, |m| {
+                m.embed(|e| e.title("Help").color(THEME_COLOR).description(body))
+            })
+            .await?;
+    }
+
+    Ok(())
+}
+
+#[command]
 #[permission_level(Managed)]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     play_cmd(ctx, msg, args, false).await
@@ -459,7 +581,7 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
                         let (call_handler, _) =
                             join_channel(ctx, guild.clone(), user_channel).await;
 
-                        let guild_data = ctx.get_from_id(guild).await.unwrap();
+                        let guild_data = ctx.guild_data(guild).await.unwrap();
 
                         let mut lock = call_handler.lock().await;
 
@@ -537,7 +659,7 @@ async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResul
                 {
                     let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
 
-                    let guild_data = ctx.get_from_id(guild).await.unwrap();
+                    let guild_data = ctx.guild_data(guild).await.unwrap();
 
                     let mut lock = call_handler.lock().await;
 
@@ -611,21 +733,6 @@ async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResul
 }
 
 #[command]
-async fn help(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    msg.channel_id
-        .send_message(&ctx, |m| {
-            m.embed(|e| {
-                e.title("Help").color(THEME_COLOR).description(
-                    "Please visit our website at: **https://soundfx.jellywx.com/help**",
-                )
-            })
-        })
-        .await?;
-
-    Ok(())
-}
-
-#[command]
 async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let current_user = ctx.cache.current_user().await;
 
@@ -669,7 +776,7 @@ async fn change_volume(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
+    let guild_data_opt = ctx.guild_data(msg.guild_id.unwrap()).await;
     let guild_data = guild_data_opt.unwrap();
 
     if args.len() == 1 {
@@ -717,7 +824,7 @@ async fn change_prefix(ctx: &Context, msg: &Message, mut args: Args) -> CommandR
     let guild_data;
 
     {
-        let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
+        let guild_data_opt = ctx.guild_data(msg.guild_id.unwrap()).await;
 
         guild_data = guild_data_opt.unwrap();
     }
@@ -1324,7 +1431,7 @@ async fn allow_greet_sounds(ctx: &Context, msg: &Message, _args: Args) -> Comman
         .cloned()
         .expect("Could not acquire SQL pool from data");
 
-    let guild_data_opt = ctx.get_from_id(msg.guild_id.unwrap()).await;
+    let guild_data_opt = ctx.guild_data(msg.guild_id.unwrap()).await;
 
     if let Ok(guild_data) = guild_data_opt {
         let current = guild_data.read().await.allow_greets;

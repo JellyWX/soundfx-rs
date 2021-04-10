@@ -252,7 +252,7 @@ impl Framework for RegexFramework {
 
         async fn check_prefix(ctx: &Context, guild: &Guild, prefix_opt: Option<Match<'_>>) -> bool {
             if let Some(prefix) = prefix_opt {
-                match ctx.get_from_id(guild.id).await {
+                match ctx.guild_data(guild.id).await {
                     Ok(guild_data) => prefix.as_str() == guild_data.read().await.prefix,
 
                     Err(_) => prefix.as_str() == "?",

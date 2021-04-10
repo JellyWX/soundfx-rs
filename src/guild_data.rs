@@ -14,7 +14,7 @@ pub struct GuildData {
 
 #[async_trait]
 pub trait CtxGuildData {
-    async fn get_from_id<G: Into<GuildId> + Send + Sync>(
+    async fn guild_data<G: Into<GuildId> + Send + Sync>(
         &self,
         guild_id: G,
     ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error>;
@@ -22,7 +22,7 @@ pub trait CtxGuildData {
 
 #[async_trait]
 impl CtxGuildData for Context {
-    async fn get_from_id<G: Into<GuildId> + Send + Sync>(
+    async fn guild_data<G: Into<GuildId> + Send + Sync>(
         &self,
         guild_id: G,
     ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error> {
