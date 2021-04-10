@@ -289,32 +289,22 @@ async fn join_channel(
         let call_opt = songbird.get(guild.id);
 
         if let Some(call) = call_opt {
-            {
-                // set call to deafen
-                let _ = call.lock().await.deafen(true).await;
-            }
-
             (call, Ok(()))
         } else {
             let (call, res) = songbird.join(guild.id, channel_id).await;
-
-            {
-                // set call to deafen
-                let _ = call.lock().await.deafen(true).await;
-            }
 
             (call, res)
         }
     } else {
         let (call, res) = songbird.join(guild.id, channel_id).await;
 
-        {
-            // set call to deafen
-            let _ = call.lock().await.deafen(true).await;
-        }
-
         (call, res)
     };
+
+    {
+        // set call to deafen
+        let _ = call.lock().await.deafen(true).await;
+    }
 
     (call, res)
 }
@@ -767,9 +757,9 @@ __Available ambience sounds:__
 #[command]
 #[permission_level(Managed)]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    {
-        let guild_id = msg.guild_id.unwrap();
+    let guild_id = msg.guild_id.unwrap();
 
+    {
         let track_count = ctx
             .data
             .read()
@@ -782,9 +772,14 @@ async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResul
         write_lock.insert(guild_id, 0);
     }
 
-    let voice_manager = songbird::get(ctx).await.unwrap();
+    let songbird = songbird::get(ctx).await.unwrap();
+    let call_opt = songbird.get(guild_id);
 
-    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
+    if let Some(call) = call_opt {
+        let mut lock = call.lock().await;
+
+        lock.stop();
+    }
 
     Ok(())
 }
