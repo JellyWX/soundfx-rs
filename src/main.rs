@@ -4,21 +4,26 @@ extern crate lazy_static;
 extern crate reqwest;
 
 mod error;
+mod event_handlers;
 mod framework;
 mod guild_data;
 mod sound;
 
-use guild_data::GuildData;
-use sound::Sound;
+use crate::{
+    event_handlers::{RestartTrack, UpdateTrackCount},
+    framework::RegexFramework,
+    guild_data::{CtxGuildData, GuildData},
+    sound::Sound,
+};
 
 use regex_command_attr::command;
 
 use serenity::{
-    async_trait,
     client::{bridge::gateway::GatewayIntents, Client, Context},
     framework::standard::{Args, CommandResult},
     http::Http,
     model::{
+        channel::Channel,
         channel::Message,
         guild::Guild,
         id::{ChannelId, GuildId, RoleId},
@@ -31,19 +36,17 @@ use serenity::{
 use songbird::{
     create_player,
     error::JoinResult,
-    events::EventHandler as SongbirdEventHandler,
     ffmpeg,
     input::{cached::Memory, Input},
-    Call, Event, EventContext, SerenityInit,
+    tracks::TrackHandle,
+    Call, Event, SerenityInit, TrackEvent,
 };
 
 use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
-use crate::{framework::RegexFramework, guild_data::CtxGuildData};
 use dashmap::DashMap;
-use serenity::model::channel::Channel;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::{MutexGuard, RwLock};
 
@@ -69,6 +72,12 @@ struct GuildDataCache;
 
 impl TypeMapKey for GuildDataCache {
     type Value = Arc<DashMap<GuildId, Arc<RwLock<GuildData>>>>;
+}
+
+struct GuildTrackCount;
+
+impl TypeMapKey for GuildTrackCount {
+    type Value = Arc<RwLock<HashMap<GuildId, u32>>>;
 }
 
 const THEME_COLOR: u32 = 0x00e0f3;
@@ -150,7 +159,20 @@ impl EventHandler for Handler {
                         if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
                             let songbird = songbird::get(&ctx).await.unwrap();
 
-                            let _ = songbird.remove(guild_id).await;
+                            {
+                                let track_count = ctx
+                                    .data
+                                    .read()
+                                    .await
+                                    .get::<GuildTrackCount>()
+                                    .cloned()
+                                    .unwrap();
+
+                                let mut write_lock = track_count.write().await;
+                                write_lock.insert(guild_id, 0);
+                            }
+
+                            let _ = songbird.leave(guild_id).await;
                         }
                     }
                 }
@@ -230,26 +252,24 @@ async fn play_audio(
     call_handler: &mut MutexGuard<'_, Call>,
     mysql_pool: MySqlPool,
     loop_: bool,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    {
-        let (track, track_handler) =
-            create_player(sound.store_sound_source(mysql_pool.clone()).await?.into());
+) -> Result<TrackHandle, Box<dyn std::error::Error + Send + Sync>> {
+    let (track, track_handler) =
+        create_player(sound.store_sound_source(mysql_pool.clone()).await?.into());
 
-        let _ = track_handler.set_volume(volume as f32 / 100.0);
+    let _ = track_handler.set_volume(volume as f32 / 100.0);
 
-        if loop_ {
-            let _ = track_handler.enable_loop();
-        } else {
-            let _ = track_handler.disable_loop();
-        }
-
-        call_handler.play(track);
+    if loop_ {
+        let _ = track_handler.enable_loop();
+    } else {
+        let _ = track_handler.disable_loop();
     }
+
+    call_handler.play(track);
 
     sound.plays += 1;
     sound.commit(mysql_pool).await?;
 
-    Ok(())
+    Ok(track_handler)
 }
 
 async fn join_channel(
@@ -384,10 +404,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .unwrap();
 
         let guild_data_cache = Arc::new(DashMap::new());
+        let guild_track_count = Arc::new(RwLock::new(HashMap::new()));
 
         let mut data = client.data.write().await;
 
         data.insert::<GuildDataCache>(guild_data_cache);
+        data.insert::<GuildTrackCount>(guild_track_count);
         data.insert::<MySQL>(mysql_pool);
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
@@ -581,11 +603,11 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
                         let (call_handler, _) =
                             join_channel(ctx, guild.clone(), user_channel).await;
 
-                        let guild_data = ctx.guild_data(guild).await.unwrap();
+                        let guild_data = ctx.guild_data(guild_id).await.unwrap();
 
                         let mut lock = call_handler.lock().await;
 
-                        play_audio(
+                        let track_handle = play_audio(
                             sound,
                             guild_data.read().await.volume,
                             &mut lock,
@@ -593,6 +615,29 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
                             loop_,
                         )
                         .await?;
+
+                        let track_count = ctx
+                            .data
+                            .read()
+                            .await
+                            .get::<GuildTrackCount>()
+                            .cloned()
+                            .unwrap();
+
+                        {
+                            let mut write_lock = track_count.write().await;
+
+                            let current = write_lock.get(&guild_id).cloned();
+                            write_lock.insert(guild_id, current.unwrap_or(0) + 1);
+                        }
+
+                        let _ = track_handle.add_event(
+                            Event::Track(TrackEvent::End),
+                            UpdateTrackCount {
+                                guild_id,
+                                track_count,
+                            },
+                        );
                     }
 
                     msg.channel_id
@@ -621,19 +666,6 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
     Ok(())
 }
 
-struct RestartTrack;
-
-#[async_trait]
-impl SongbirdEventHandler for RestartTrack {
-    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
-        if let EventContext::Track(&[(_state, track)]) = ctx {
-            let _ = track.seek_time(Default::default());
-        }
-
-        None
-    }
-}
-
 #[command]
 #[permission_level(Managed)]
 async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
@@ -656,34 +688,44 @@ async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResul
             let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
 
             if let Some(filename) = audio_index.get(&search_name) {
+                let (track, track_handler) = create_player(
+                    Input::try_from(
+                        Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap()).unwrap(),
+                    )
+                    .unwrap(),
+                );
+
+                let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
+                let guild_data = ctx.guild_data(guild).await.unwrap();
+
                 {
-                    let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
-
-                    let guild_data = ctx.guild_data(guild).await.unwrap();
-
                     let mut lock = call_handler.lock().await;
 
-                    // stop anything currently playing
-                    lock.stop();
-
-                    let (track, track_handler) = create_player(
-                        Input::try_from(
-                            Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap())
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    );
-
-                    let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
-                    let _ = track_handler.add_event(
-                        Event::Periodic(
-                            track_handler.metadata().duration.unwrap() - Duration::from_millis(500),
-                            None,
-                        ),
-                        RestartTrack {},
-                    );
-
                     lock.play(track);
+                }
+
+                let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
+                let _ = track_handler.add_event(
+                    Event::Periodic(
+                        track_handler.metadata().duration.unwrap() - Duration::from_millis(200),
+                        None,
+                    ),
+                    RestartTrack {},
+                );
+
+                {
+                    let track_count = ctx
+                        .data
+                        .read()
+                        .await
+                        .get::<GuildTrackCount>()
+                        .cloned()
+                        .unwrap();
+
+                    let mut write_lock = track_count.write().await;
+
+                    let current = write_lock.get(&msg.guild_id.unwrap()).cloned();
+                    write_lock.insert(msg.guild_id.unwrap(), current.unwrap_or(0) + 1);
                 }
 
                 msg.channel_id
@@ -725,9 +767,24 @@ __Available ambience sounds:__
 #[command]
 #[permission_level(Managed)]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    {
+        let guild_id = msg.guild_id.unwrap();
+
+        let track_count = ctx
+            .data
+            .read()
+            .await
+            .get::<GuildTrackCount>()
+            .cloned()
+            .unwrap();
+
+        let mut write_lock = track_count.write().await;
+        write_lock.insert(guild_id, 0);
+    }
+
     let voice_manager = songbird::get(ctx).await.unwrap();
 
-    let _ = voice_manager.remove(msg.guild_id.unwrap()).await;
+    let _ = voice_manager.leave(msg.guild_id.unwrap()).await;
 
     Ok(())
 }

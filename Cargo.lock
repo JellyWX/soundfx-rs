@@ -1809,7 +1809,7 @@ dependencies = [
 [[package]]
 name = "songbird"
 version = "0.1.5"
-source = "git+https://github.com/serenity-rs/songbird?branch=current#df64ad92e5dc150790be2216c4e79b6fefa4964a"
+source = "git+https://github.com/FelixMcFelix/songbird?branch=fix-driver-leave-join#a5c4f915bc24c09460c36156a96b38e2957bceb4"
 dependencies = [
  "async-trait",
  "async-tungstenite 0.13.1",
@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "soundfx-rs"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "dashmap",
  "dotenv",
