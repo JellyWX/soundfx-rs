@@ -1808,8 +1808,9 @@ dependencies = [
 
 [[package]]
 name = "songbird"
-version = "0.1.5"
-source = "git+https://github.com/FelixMcFelix/songbird?branch=fix-driver-leave-join#a5c4f915bc24c09460c36156a96b38e2957bceb4"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "358efdd4b111021b0b7499fa087aa3cba8f01ae7210d37ab45620e4791c09ab8"
 dependencies = [
  "async-trait",
  "async-tungstenite 0.13.1",
@@ -1826,6 +1827,7 @@ dependencies = [
  "serenity",
  "serenity-voice-model",
  "spin_sleep",
+ "spinning_top",
  "streamcatcher",
  "tokio",
  "tracing",
@@ -1873,9 +1875,9 @@ dependencies = [
 
 [[package]]
 name = "spinning_top"
-version = "0.2.3"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bd0ab6b8c375d2d963503b90d3770010d95bc3b5f98036f948dee24bf4e8879"
+checksum = "7e529d73e80d64b5f2631f9035113347c578a1c9c7774b83a2b880788459ab36"
 dependencies = [
  "lock_api",
 ]

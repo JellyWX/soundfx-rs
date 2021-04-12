@@ -10,7 +10,7 @@ mod guild_data;
 mod sound;
 
 use crate::{
-    event_handlers::{RestartTrack, UpdateTrackCount},
+    event_handlers::RestartTrack,
     framework::RegexFramework,
     guild_data::{CtxGuildData, GuildData},
     sound::Sound,
@@ -39,7 +39,7 @@ use songbird::{
     ffmpeg,
     input::{cached::Memory, Input},
     tracks::TrackHandle,
-    Call, Event, SerenityInit, TrackEvent,
+    Call, Event, SerenityInit,
 };
 
 use sqlx::mysql::MySqlPool;
@@ -74,22 +74,12 @@ impl TypeMapKey for GuildDataCache {
     type Value = Arc<DashMap<GuildId, Arc<RwLock<GuildData>>>>;
 }
 
-struct GuildTrackCount;
-
-impl TypeMapKey for GuildTrackCount {
-    type Value = Arc<RwLock<HashMap<GuildId, u32>>>;
-}
-
 const THEME_COLOR: u32 = 0x00e0f3;
 
 lazy_static! {
     static ref MAX_SOUNDS: u32 = env::var("MAX_SOUNDS").unwrap().parse::<u32>().unwrap();
     static ref PATREON_GUILD: u64 = env::var("PATREON_GUILD").unwrap().parse::<u64>().unwrap();
     static ref PATREON_ROLE: u64 = env::var("PATREON_ROLE").unwrap().parse::<u64>().unwrap();
-    static ref AUTODISCONNECT_TIMER: u64 = env::var("AUTODISCONNECT_TIMER")
-        .unwrap_or("300".to_string())
-        .parse::<u64>()
-        .unwrap();
 }
 
 // create event handler for bot
@@ -159,20 +149,7 @@ impl EventHandler for Handler {
                         if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
                             let songbird = songbird::get(&ctx).await.unwrap();
 
-                            {
-                                let track_count = ctx
-                                    .data
-                                    .read()
-                                    .await
-                                    .get::<GuildTrackCount>()
-                                    .cloned()
-                                    .unwrap();
-
-                                let mut write_lock = track_count.write().await;
-                                write_lock.insert(guild_id, 0);
-                            }
-
-                            let _ = songbird.leave(guild_id).await;
+                            let _ = songbird.remove(guild_id).await;
                         }
                     }
                 }
@@ -394,12 +371,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .unwrap();
 
         let guild_data_cache = Arc::new(DashMap::new());
-        let guild_track_count = Arc::new(RwLock::new(HashMap::new()));
-
         let mut data = client.data.write().await;
 
         data.insert::<GuildDataCache>(guild_data_cache);
-        data.insert::<GuildTrackCount>(guild_track_count);
         data.insert::<MySQL>(mysql_pool);
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
@@ -597,7 +571,7 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
 
                         let mut lock = call_handler.lock().await;
 
-                        let track_handle = play_audio(
+                        play_audio(
                             sound,
                             guild_data.read().await.volume,
                             &mut lock,
@@ -605,29 +579,6 @@ async fn play_cmd(ctx: &Context, msg: &Message, args: Args, loop_: bool) -> Comm
                             loop_,
                         )
                         .await?;
-
-                        let track_count = ctx
-                            .data
-                            .read()
-                            .await
-                            .get::<GuildTrackCount>()
-                            .cloned()
-                            .unwrap();
-
-                        {
-                            let mut write_lock = track_count.write().await;
-
-                            let current = write_lock.get(&guild_id).cloned();
-                            write_lock.insert(guild_id, current.unwrap_or(0) + 1);
-                        }
-
-                        let _ = track_handle.add_event(
-                            Event::Track(TrackEvent::End),
-                            UpdateTrackCount {
-                                guild_id,
-                                track_count,
-                            },
-                        );
                     }
 
                     msg.channel_id
@@ -703,21 +654,6 @@ async fn play_ambience(ctx: &Context, msg: &Message, args: Args) -> CommandResul
                     RestartTrack {},
                 );
 
-                {
-                    let track_count = ctx
-                        .data
-                        .read()
-                        .await
-                        .get::<GuildTrackCount>()
-                        .cloned()
-                        .unwrap();
-
-                    let mut write_lock = track_count.write().await;
-
-                    let current = write_lock.get(&msg.guild_id.unwrap()).cloned();
-                    write_lock.insert(msg.guild_id.unwrap(), current.unwrap_or(0) + 1);
-                }
-
                 msg.channel_id
                     .say(&ctx, format!("Playing ambience **{}**", search_name))
                     .await?;
@@ -758,19 +694,6 @@ __Available ambience sounds:__
 #[permission_level(Managed)]
 async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let guild_id = msg.guild_id.unwrap();
-
-    {
-        let track_count = ctx
-            .data
-            .read()
-            .await
-            .get::<GuildTrackCount>()
-            .cloned()
-            .unwrap();
-
-        let mut write_lock = track_count.write().await;
-        write_lock.insert(guild_id, 0);
-    }
 
     let songbird = songbird::get(ctx).await.unwrap();
     let call_opt = songbird.get(guild_id);
