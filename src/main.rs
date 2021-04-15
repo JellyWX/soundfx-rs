@@ -16,6 +16,8 @@ use crate::{
     sound::Sound,
 };
 
+use log::info;
+
 use regex_command_attr::command;
 
 use serenity::{
@@ -46,7 +48,9 @@ use sqlx::mysql::MySqlPool;
 
 use dotenv::dotenv;
 
+use crate::sound::JoinSoundCtx;
 use dashmap::DashMap;
+use serenity::model::id::UserId;
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 use tokio::sync::{MutexGuard, RwLock};
 
@@ -72,6 +76,12 @@ struct GuildDataCache;
 
 impl TypeMapKey for GuildDataCache {
     type Value = Arc<DashMap<GuildId, Arc<RwLock<GuildData>>>>;
+}
+
+struct JoinSoundCache;
+
+impl TypeMapKey for JoinSoundCache {
+    type Value = Arc<DashMap<UserId, Option<u32>>>;
 }
 
 const THEME_COLOR: u32 = 0x00e0f3;
@@ -178,20 +188,7 @@ impl EventHandler for Handler {
                     }
 
                     if allowed_greets {
-                        let join_id_res = sqlx::query!(
-                            "
-SELECT join_sound_id
-    FROM users
-    WHERE user = ? AND join_sound_id IS NOT NULL
-                                    ",
-                            new.user_id.as_u64()
-                        )
-                        .fetch_one(&pool)
-                        .await;
-
-                        if let Ok(join_id_record) = join_id_res {
-                            let join_id = join_id_record.join_sound_id;
-
+                        if let Some(join_id) = ctx.join_sound(new.user_id).await {
                             let mut sound = sqlx::query_as_unchecked!(
                                 Sound,
                                 "
@@ -371,9 +368,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .unwrap();
 
         let guild_data_cache = Arc::new(DashMap::new());
+        let join_sound_cache = Arc::new(DashMap::new());
         let mut data = client.data.write().await;
 
         data.insert::<GuildDataCache>(guild_data_cache);
+        data.insert::<JoinSoundCache>(join_sound_cache);
         data.insert::<MySQL>(mysql_pool);
 
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
@@ -383,7 +382,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    client.start_autosharded().await?;
+    if let Ok((Some(lower), Some(upper))) = env::var("SHARD_RANGE").map(|sr| {
+        let mut split = sr
+            .split(',')
+            .map(|val| val.parse::<u64>().expect("SHARD_RANGE not an integer"));
+
+        (split.next(), split.next())
+    }) {
+        let total_shards = env::var("SHARD_COUNT")
+            .map(|shard_count| shard_count.parse::<u64>().ok())
+            .ok()
+            .flatten()
+            .expect("No SHARD_COUNT provided, but SHARD_RANGE was provided");
+
+        assert!(
+            lower < upper,
+            "SHARD_RANGE lower limit is not less than the upper limit"
+        );
+
+        info!(
+            "Starting client fragment with shards {}-{}/{}",
+            lower, upper, total_shards
+        );
+
+        client
+            .start_shard_range([lower, upper], total_shards)
+            .await?;
+    } else if let Ok(total_shards) = env::var("SHARD_COUNT").map(|shard_count| {
+        shard_count
+            .parse::<u64>()
+            .expect("SHARD_COUNT not an integer")
+    }) {
+        info!("Starting client with {} shards", total_shards);
+
+        client.start_shards(total_shards).await?;
+    } else {
+        info!("Starting client as autosharded");
+
+        client.start_autosharded().await?;
+    }
 
     Ok(())
 }
@@ -1332,29 +1369,8 @@ async fn set_greet_sound(ctx: &Context, msg: &Message, args: Args) -> CommandRes
     let query = args.rest();
     let user_id = *msg.author.id.as_u64();
 
-    let _ = sqlx::query!(
-        "
-INSERT IGNORE INTO users (user)
-    VALUES (?)
-        ",
-        user_id
-    )
-    .execute(&pool)
-    .await;
-
     if query.len() == 0 {
-        sqlx::query!(
-            "
-UPDATE users
-SET
-    join_sound_id = NULL
-WHERE
-    user = ?
-            ",
-            user_id
-        )
-        .execute(&pool)
-        .await?;
+        ctx.update_join_sound(user_id, None).await;
 
         msg.channel_id
             .say(&ctx, "Your greet sound has been unset.")
@@ -1371,7 +1387,7 @@ WHERE
 
         match sound_vec.first() {
             Some(sound) => {
-                sound.set_as_greet(user_id, pool).await?;
+                ctx.update_join_sound(user_id, Some(sound.id)).await;
 
                 msg.channel_id
                     .say(

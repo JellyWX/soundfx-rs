@@ -8,6 +8,109 @@ use songbird::input::restartable::Restartable;
 
 use std::{env, path::Path};
 
+use crate::{JoinSoundCache, MySQL};
+use serenity::{async_trait, model::id::UserId, prelude::Context};
+
+#[async_trait]
+pub trait JoinSoundCtx {
+    async fn join_sound<U: Into<UserId> + Send + Sync>(&self, user_id: U) -> Option<u32>;
+    async fn update_join_sound<U: Into<UserId> + Send + Sync>(
+        &self,
+        user_id: U,
+        join_id: Option<u32>,
+    );
+}
+
+#[async_trait]
+impl JoinSoundCtx for Context {
+    async fn join_sound<U: Into<UserId> + Send + Sync>(&self, user_id: U) -> Option<u32> {
+        let user_id = user_id.into();
+        let join_sound_cache = self
+            .data
+            .read()
+            .await
+            .get::<JoinSoundCache>()
+            .cloned()
+            .unwrap();
+
+        let x = if let Some(join_sound_id) = join_sound_cache.get(&user_id) {
+            join_sound_id.value().clone()
+        } else {
+            let join_sound_id = {
+                let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
+
+                let join_id_res = sqlx::query!(
+                    "
+SELECT join_sound_id
+    FROM users
+    WHERE user = ?
+                    ",
+                    user_id.as_u64()
+                )
+                .fetch_one(&pool)
+                .await;
+
+                if let Ok(row) = join_id_res {
+                    row.join_sound_id
+                } else {
+                    None
+                }
+            };
+
+            join_sound_cache.insert(user_id, join_sound_id);
+
+            join_sound_id
+        };
+
+        x
+    }
+
+    async fn update_join_sound<U: Into<UserId> + Send + Sync>(
+        &self,
+        user_id: U,
+        join_id: Option<u32>,
+    ) {
+        let user_id = user_id.into();
+        let join_sound_cache = self
+            .data
+            .read()
+            .await
+            .get::<JoinSoundCache>()
+            .cloned()
+            .unwrap();
+
+        join_sound_cache.insert(user_id, join_id);
+
+        let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
+
+        if join_sound_cache.get(&user_id).is_none() {
+            let _ = sqlx::query!(
+                "
+INSERT IGNORE INTO users (user)
+    VALUES (?)
+            ",
+                user_id.as_u64()
+            )
+            .execute(&pool)
+            .await;
+        }
+
+        let _ = sqlx::query!(
+            "
+UPDATE users
+SET
+    join_sound_id = ?
+WHERE
+    user = ?
+            ",
+            join_id,
+            user_id.as_u64()
+        )
+        .execute(&pool)
+        .await;
+    }
+}
+
 pub struct Sound {
     pub name: String,
     pub id: u32,
@@ -193,28 +296,6 @@ SELECT COUNT(1) as count
         .count;
 
         Ok(c as u32)
-    }
-
-    pub async fn set_as_greet(
-        &self,
-        user_id: u64,
-        db_pool: MySqlPool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        sqlx::query!(
-            "
-UPDATE users
-SET
-    join_sound_id = ?
-WHERE
-    user = ?
-            ",
-            self.id,
-            user_id
-        )
-        .execute(&db_pool)
-        .await?;
-
-        Ok(())
     }
 
     pub async fn commit(
