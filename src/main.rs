@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-extern crate reqwest;
-
 mod error;
 mod event_handlers;
 mod framework;

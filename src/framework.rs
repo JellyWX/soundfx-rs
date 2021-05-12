@@ -287,8 +287,13 @@ impl Framework for RegexFramework {
 
                                 let member = guild.member(&ctx, &msg.author).await.unwrap();
 
+                                info!(
+                                    "Starting permission check for {} ({})",
+                                    command.name, msg.content
+                                );
+
                                 if command.check_permissions(&ctx, &guild, &member).await {
-                                    dbg!(command.name);
+                                    info!("Check on {} ({}) passed", command.name, msg.content);
 
                                     (command.func)(
                                         &ctx,
@@ -305,6 +310,8 @@ impl Framework for RegexFramework {
                                         .say(&ctx, "You must be an Admin to do this command")
                                         .await;
                                 }
+
+                                info!("Finished executing {} ({})", command.name, msg.content);
                             }
 
                             PermissionCheck::None => {
