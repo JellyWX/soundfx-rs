@@ -1224,9 +1224,30 @@ async fn delete_sound(ctx: &Context, msg: &Message, args: Args) -> CommandResult
                     )
                     .await?;
             } else {
-                sound.delete(pool).await?;
+                let has_perms = {
+                    if let Ok(member) = msg.member(&ctx).await {
+                        if let Ok(perms) = member.permissions(&ctx).await {
+                            perms.manage_guild()
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
 
-                msg.channel_id.say(&ctx, "Sound has been deleted").await?;
+                if sound.uploader_id == Some(uid) || has_perms {
+                    sound.delete(pool).await?;
+
+                    msg.channel_id.say(&ctx, "Sound has been deleted").await?;
+                } else {
+                    msg.channel_id
+                        .say(
+                            &ctx,
+                            "Only server admins can delete sounds uploaded by other users.",
+                        )
+                        .await?;
+                }
             }
         }
 
