@@ -324,6 +324,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_command("play", &PLAY_COMMAND)
         .add_command("p", &PLAY_COMMAND)
         .add_command("stop", &STOP_PLAYING_COMMAND)
+        .add_command("disconnect", &DISCONNECT_COMMAND)
+        .add_command("dc", &DISCONNECT_COMMAND)
         // sound management commands
         .add_command("upload", &UPLOAD_NEW_SOUND_COMMAND)
         .add_command("delete", &DELETE_SOUND_COMMAND)
@@ -444,7 +446,7 @@ async fn help(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                         .color(THEME_COLOR)
                         .description(description)
                         .field("Info", "`help` `info` `invite` `donate`", false)
-                        .field("Play", "`play` `p` `stop` `loop`", false)
+                        .field("Play", "`play` `p` `stop` `dc` `loop`", false)
                         .field("Manage", "`upload` `delete` `list` `public`", false)
                         .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
                         .field("Search", "`search` `random` `popular`", false)
@@ -474,6 +476,7 @@ async fn help(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 `p` - an alias for `play`
 
 `stop` - stop the bot from playing
+`dc` - disconnect the bot from the current channel
 
 `loop [sound]` - play a sound matching the name \"sound\" on loop
 `loop [id]` - play a sound matching the numerical ID `id` on loop
@@ -743,6 +746,17 @@ async fn stop_playing(ctx: &Context, msg: &Message, _args: Args) -> CommandResul
 }
 
 #[command]
+#[permission_level(Managed)]
+async fn disconnect(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    let guild_id = msg.guild_id.unwrap();
+
+    let songbird = songbird::get(ctx).await.unwrap();
+    let _ = songbird.leave(guild_id).await;
+
+    Ok(())
+}
+
+#[command]
 async fn info(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     let current_user = ctx.cache.current_user().await;
 
@@ -770,7 +784,7 @@ Find me on https://discord.jellywx.com/ and on https://github.com/JellyWX :)
 \"Small River 1 - Fast - Close\" https://freesound.org/people/Pfannkuchn/
 
 **An online dashboard is available!** Visit https://soundfx.jellywx.com/dashboard
-There is a maximum sound limit per user. This can be removed by donating at https://patreon.com/jellywx", current_user.name, current_user.id.as_u64())))).await?;
+There is a maximum sound limit per user. This can be removed by subscribing at **https://patreon.com/jellywx**", current_user.name, current_user.id.as_u64())))).await?;
 
     Ok(())
 }
