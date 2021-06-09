@@ -226,11 +226,15 @@ impl ToTokens for PermissionLevel {
 #[derive(Debug, Default)]
 pub struct Options {
     pub permission_level: PermissionLevel,
+    pub allow_slash: bool,
 }
 
 impl Options {
     #[inline]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            permission_level: PermissionLevel::default(),
+            allow_slash: false,
+        }
     }
 }

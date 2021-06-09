@@ -57,11 +57,15 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
         let name = &name[..];
 
         match_options!(name, values, options, span => [
-            permission_level
+            permission_level;
+            allow_slash
         ]);
     }
 
-    let Options { permission_level } = options;
+    let Options {
+        permission_level,
+        allow_slash,
+    } = options;
 
     propagate_err!(create_declaration_validations(&mut fun, DeclarFor::Command));
 
@@ -88,6 +92,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
             func: #name,
             name: #lit_name,
             required_perms: #permission_level,
+            allow_slash: #allow_slash,
         };
 
         #visibility fn #name<'fut> (#(#args),*) -> ::serenity::futures::future::BoxFuture<'fut, #ret> {

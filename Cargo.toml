@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 songbird = { git = "https://github.com/FelixMcFelix/songbird", branch = "ws-fix" }
-serenity = { git = "https://github.com/serenity-rs/serenity", branch = "next", features = ["voice", "collector"] }
+serenity = { git = "https://github.com/serenity-rs/serenity", branch = "next", features = ["voice", "collector", "unstable_discord_api"] }
 sqlx = { version = "0.5", default-features = false, features = ["runtime-tokio-rustls", "macros", "mysql", "bigdecimal"] }
 dotenv = "0.15"
 tokio = { version = "1", features = ["fs", "process", "io-util"] }

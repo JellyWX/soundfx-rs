@@ -121,13 +121,16 @@ pub struct Sound {
 }
 
 impl Sound {
-    pub async fn search_for_sound(
+    pub async fn search_for_sound<G: Into<u64>, U: Into<u64>>(
         query: &str,
-        guild_id: u64,
-        user_id: u64,
+        guild_id: G,
+        user_id: U,
         db_pool: MySqlPool,
         strict: bool,
     ) -> Result<Vec<Sound>, sqlx::Error> {
+        let guild_id = guild_id.into();
+        let user_id = user_id.into();
+
         fn extract_id(s: &str) -> Option<u32> {
             if s.len() > 3 && s.to_lowercase().starts_with("id:") {
                 match s[3..].parse::<u32>() {
@@ -403,8 +406,8 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
         }
     }
 
-    pub async fn get_user_sounds(
-        user_id: u64,
+    pub async fn get_user_sounds<U: Into<u64>>(
+        user_id: U,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
@@ -414,7 +417,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
             ",
-            user_id
+            user_id.into()
         )
         .fetch_all(&db_pool)
         .await?;
@@ -422,8 +425,8 @@ SELECT name, id, plays, public, server_id, uploader_id
         Ok(sounds)
     }
 
-    pub async fn get_guild_sounds(
-        guild_id: u64,
+    pub async fn get_guild_sounds<G: Into<u64>>(
+        guild_id: G,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
@@ -433,7 +436,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
             ",
-            guild_id
+            guild_id.into()
         )
         .fetch_all(&db_pool)
         .await?;

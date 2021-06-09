@@ -2,13 +2,17 @@ use serenity::{
     async_trait,
     client::Context,
     constants::MESSAGE_CODE_LIMIT,
-    framework::{standard::Args, Framework},
+    framework::{
+        standard::{Args, CommandResult, Delimiter},
+        Framework,
+    },
     futures::prelude::future::BoxFuture,
     http::Http,
     model::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
-        id::ChannelId,
+        id::{ChannelId, GuildId, UserId},
+        interactions::Interaction,
     },
     Result as SerenityResult,
 };
@@ -20,9 +24,164 @@ use regex::{Match, Regex, RegexBuilder};
 use std::{collections::HashMap, fmt};
 
 use crate::{guild_data::CtxGuildData, MySQL};
-use serenity::framework::standard::{CommandResult, Delimiter};
+use serenity::builder::CreateEmbed;
+use serenity::cache::Cache;
+use serenity::model::prelude::InteractionResponseType;
+use std::sync::Arc;
 
-type CommandFn = for<'fut> fn(&'fut Context, &'fut Message, Args) -> BoxFuture<'fut, CommandResult>;
+type CommandFn = for<'fut> fn(
+    &'fut Context,
+    &'fut (dyn CommandInvoke + Sync + Send),
+    Args,
+) -> BoxFuture<'fut, CommandResult>;
+
+pub struct CreateGenericResponse {
+    content: String,
+    embed: Option<CreateEmbed>,
+}
+
+impl CreateGenericResponse {
+    pub fn new() -> Self {
+        Self {
+            content: "".to_string(),
+            embed: None,
+        }
+    }
+
+    pub fn content<D: ToString>(mut self, content: D) -> Self {
+        self.content = content.to_string();
+
+        self
+    }
+
+    pub fn embed<F: FnOnce(&mut CreateEmbed) -> &mut CreateEmbed>(mut self, f: F) -> Self {
+        let mut embed = CreateEmbed::default();
+
+        f(&mut embed);
+
+        self.embed = Some(embed);
+
+        self
+    }
+}
+
+#[async_trait]
+pub trait CommandInvoke {
+    fn channel_id(&self) -> ChannelId;
+    fn guild_id(&self) -> Option<GuildId>;
+    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild>;
+    fn author_id(&self) -> UserId;
+    async fn member(&self, context: &Context) -> SerenityResult<Member>;
+    fn msg(&self) -> Option<Message>;
+    fn interaction(&self) -> Option<Interaction>;
+    async fn respond(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()>;
+}
+
+#[async_trait]
+impl CommandInvoke for Message {
+    fn channel_id(&self) -> ChannelId {
+        self.channel_id
+    }
+
+    fn guild_id(&self) -> Option<GuildId> {
+        self.guild_id
+    }
+
+    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
+        self.guild(cache).await
+    }
+
+    fn author_id(&self) -> UserId {
+        self.author.id
+    }
+
+    async fn member(&self, context: &Context) -> SerenityResult<Member> {
+        self.member(context).await
+    }
+
+    fn msg(&self) -> Option<Message> {
+        Some(self.clone())
+    }
+
+    fn interaction(&self) -> Option<Interaction> {
+        None
+    }
+
+    async fn respond(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()> {
+        self.channel_id
+            .send_message(http, |m| {
+                m.content(generic_response.content);
+
+                if let Some(embed) = generic_response.embed {
+                    m.set_embed(embed.clone());
+                }
+
+                m
+            })
+            .await
+            .map(|_| ())
+    }
+}
+
+#[async_trait]
+impl CommandInvoke for Interaction {
+    fn channel_id(&self) -> ChannelId {
+        self.channel_id.unwrap()
+    }
+
+    fn guild_id(&self) -> Option<GuildId> {
+        self.guild_id
+    }
+
+    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
+        self.guild(cache).await
+    }
+
+    fn author_id(&self) -> UserId {
+        self.member.as_ref().unwrap().user.id
+    }
+
+    async fn member(&self, _: &Context) -> SerenityResult<Member> {
+        Ok(self.member.clone().unwrap())
+    }
+
+    fn msg(&self) -> Option<Message> {
+        None
+    }
+
+    fn interaction(&self) -> Option<Interaction> {
+        Some(self.clone())
+    }
+
+    async fn respond(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()> {
+        self.create_interaction_response(http, |r| {
+            r.kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|d| {
+                    d.content(generic_response.content);
+
+                    if let Some(embed) = generic_response.embed {
+                        d.set_embed(embed.clone());
+                    }
+
+                    d
+                })
+        })
+        .await
+        .map(|_| ())
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum PermissionLevel {
@@ -35,6 +194,7 @@ pub struct Command {
     pub name: &'static str,
     pub required_perms: PermissionLevel,
     pub func: CommandFn,
+    pub allow_slash: bool,
 }
 
 impl Command {
