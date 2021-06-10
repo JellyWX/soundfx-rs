@@ -184,35 +184,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .case_insensitive(true)
         .ignore_bots(true)
         // info commands
-        .add_command("help", &HELP_COMMAND)
-        .add_command("info", &INFO_COMMAND)
-        .add_command("invite", &INFO_COMMAND)
-        .add_command("donate", &INFO_COMMAND)
+        .add_command(&HELP_COMMAND)
+        .add_command(&INFO_COMMAND)
+        .add_command(&INFO_COMMAND)
+        .add_command(&INFO_COMMAND)
         // play commands
-        .add_command("loop", &LOOP_PLAY_COMMAND)
-        .add_command("play", &PLAY_COMMAND)
-        .add_command("p", &PLAY_COMMAND)
-        .add_command("stop", &STOP_PLAYING_COMMAND)
-        .add_command("disconnect", &DISCONNECT_COMMAND)
-        .add_command("dc", &DISCONNECT_COMMAND)
+        .add_command(&LOOP_PLAY_COMMAND)
+        .add_command(&PLAY_COMMAND)
+        .add_command(&STOP_PLAYING_COMMAND)
+        .add_command(&DISCONNECT_COMMAND)
         // sound management commands
-        .add_command("upload", &UPLOAD_NEW_SOUND_COMMAND)
-        .add_command("delete", &DELETE_SOUND_COMMAND)
-        .add_command("list", &LIST_SOUNDS_COMMAND)
-        .add_command("public", &CHANGE_PUBLIC_COMMAND)
+        .add_command(&UPLOAD_NEW_SOUND_COMMAND)
+        .add_command(&DELETE_SOUND_COMMAND)
+        .add_command(&LIST_SOUNDS_COMMAND)
+        .add_command(&CHANGE_PUBLIC_COMMAND)
         // setting commands
-        .add_command("prefix", &CHANGE_PREFIX_COMMAND)
-        .add_command("roles", &SET_ALLOWED_ROLES_COMMAND)
-        .add_command("volume", &CHANGE_VOLUME_COMMAND)
-        .add_command("allow_greet", &ALLOW_GREET_SOUNDS_COMMAND)
-        .add_command("greet", &SET_GREET_SOUND_COMMAND)
+        .add_command(&CHANGE_PREFIX_COMMAND)
+        .add_command(&SET_ALLOWED_ROLES_COMMAND)
+        .add_command(&CHANGE_VOLUME_COMMAND)
+        .add_command(&ALLOW_GREET_SOUNDS_COMMAND)
+        .add_command(&SET_GREET_SOUND_COMMAND)
         // search commands
-        .add_command("search", &SEARCH_SOUNDS_COMMAND)
-        .add_command("popular", &SHOW_POPULAR_SOUNDS_COMMAND)
-        .add_command("random", &SHOW_RANDOM_SOUNDS_COMMAND);
+        .add_command(&SEARCH_SOUNDS_COMMAND)
+        .add_command(&SHOW_POPULAR_SOUNDS_COMMAND)
+        .add_command(&SHOW_RANDOM_SOUNDS_COMMAND);
 
     if audio_index.is_some() {
-        framework = framework.add_command("ambience", &PLAY_AMBIENCE_COMMAND);
+        framework = framework.add_command(&PLAY_AMBIENCE_COMMAND);
     }
 
     framework = framework.build();
@@ -425,18 +423,14 @@ Please select a category from the following:
 }
 
 #[command]
-#[permission_level(Managed)]
+#[aliases("p")]
+#[required_permissions(Managed)]
 async fn play(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let guild = invoke
-        .guild_id()
-        .unwrap()
-        .to_guild_cached(&ctx)
-        .await
-        .unwrap();
+    let guild = invoke.guild(ctx.cache.clone()).await.unwrap();
 
     invoke
         .channel_id()
@@ -450,7 +444,7 @@ async fn play(
 }
 
 #[command]
-#[permission_level(Managed)]
+#[required_permissions(Managed)]
 async fn loop_play(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -528,8 +522,8 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
     }
 }
 
-#[command]
-#[permission_level(Managed)]
+#[command("ambience")]
+#[required_permissions(Managed)]
 async fn play_ambience(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -617,8 +611,8 @@ __Available ambience sounds:__
     Ok(())
 }
 
-#[command]
-#[permission_level(Managed)]
+#[command("stop")]
+#[required_permissions(Managed)]
 async fn stop_playing(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -639,7 +633,8 @@ async fn stop_playing(
 }
 
 #[command]
-#[permission_level(Managed)]
+#[aliases("dc")]
+#[required_permissions(Managed)]
 async fn disconnect(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -654,6 +649,7 @@ async fn disconnect(
 }
 
 #[command]
+#[aliases("invite")]
 async fn info(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -690,8 +686,8 @@ There is a maximum sound limit per user. This can be removed by subscribing at *
     Ok(())
 }
 
-#[command]
-#[permission_level(Managed)]
+#[command("volume")]
+#[required_permissions(Managed)]
 async fn change_volume(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -755,8 +751,8 @@ async fn change_volume(
     Ok(())
 }
 
-#[command]
-#[permission_level(Restricted)]
+#[command("prefix")]
+#[required_permissions(Restricted)]
 async fn change_prefix(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -838,7 +834,7 @@ async fn change_prefix(
     Ok(())
 }
 
-#[command]
+#[command("upload")]
 #[allow_slash(false)]
 async fn upload_new_sound(
     ctx: &Context,
@@ -971,8 +967,8 @@ async fn upload_new_sound(
     Ok(())
 }
 
-#[command]
-#[permission_level(Restricted)]
+#[command("roles")]
+#[required_permissions(Restricted)]
 #[allow_slash(false)]
 async fn set_allowed_roles(
     ctx: &Context,
@@ -1060,7 +1056,7 @@ INSERT INTO roles (guild_id, role)
     Ok(())
 }
 
-#[command]
+#[command("list")]
 async fn list_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1121,7 +1117,7 @@ async fn list_sounds(
     Ok(())
 }
 
-#[command]
+#[command("public")]
 async fn change_public(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1186,7 +1182,7 @@ async fn change_public(
     Ok(())
 }
 
-#[command]
+#[command("delete")]
 async fn delete_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1290,7 +1286,7 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
     CreateGenericResponse::new().embed(|e| e.title(title).fields(field_iter))
 }
 
-#[command]
+#[command("search")]
 async fn search_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1322,7 +1318,7 @@ async fn search_sounds(
     Ok(())
 }
 
-#[command]
+#[command("popular")]
 async fn show_popular_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1356,7 +1352,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     Ok(())
 }
 
-#[command]
+#[command("random")]
 async fn show_random_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1391,7 +1387,7 @@ SELECT name, id, plays, public, server_id, uploader_id
     Ok(())
 }
 
-#[command]
+#[command("greet")]
 async fn set_greet_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1457,8 +1453,8 @@ async fn set_greet_sound(
     Ok(())
 }
 
-#[command]
-#[permission_level(Managed)]
+#[command("allow_greet")]
+#[required_permissions(Managed)]
 async fn allow_greet_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),

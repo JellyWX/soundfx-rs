@@ -1,3 +1,5 @@
+use std::fmt::{self, Write};
+
 use proc_macro2::Span;
 use syn::parse::{Error, Result};
 use syn::spanned::Spanned;
@@ -5,8 +7,6 @@ use syn::{Attribute, Ident, Lit, LitStr, Meta, NestedMeta, Path};
 
 use crate::structures::PermissionLevel;
 use crate::util::{AsOption, LitExt};
-
-use std::fmt::{self, Write};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueKind {

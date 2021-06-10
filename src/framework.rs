@@ -191,15 +191,18 @@ pub enum PermissionLevel {
 }
 
 pub struct Command {
-    pub name: &'static str,
-    pub required_perms: PermissionLevel,
-    pub func: CommandFn,
+    pub fun: CommandFn,
+    pub names: &'static [&'static str],
+    pub desc: Option<&'static str>,
+    pub usage: Option<&'static str>,
+    pub examples: &'static [&'static str],
+    pub required_permissions: PermissionLevel,
     pub allow_slash: bool,
 }
 
 impl Command {
     async fn check_permissions(&self, ctx: &Context, guild: &Guild, member: &Member) -> bool {
-        if self.required_perms == PermissionLevel::Unrestricted {
+        if self.required_permissions == PermissionLevel::Unrestricted {
             true
         } else {
             let permissions = guild.member_permissions(&ctx, &member.user).await.unwrap();
@@ -208,7 +211,7 @@ impl Command {
                 return true;
             }
 
-            if self.required_perms == PermissionLevel::Managed {
+            if self.required_permissions == PermissionLevel::Managed {
                 let pool = ctx
                     .data
                     .read()
@@ -262,8 +265,8 @@ SELECT role
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Command")
-            .field("name", &self.name)
-            .field("required_perms", &self.required_perms)
+            .field("name", &self.names[0])
+            .field("required_permissions", &self.required_permissions)
             .finish()
     }
 }
@@ -350,8 +353,10 @@ impl RegexFramework {
         self
     }
 
-    pub fn add_command<S: ToString>(mut self, name: S, command: &'static Command) -> Self {
-        self.commands.insert(name.to_string(), command);
+    pub fn add_command(mut self, command: &'static Command) -> Self {
+        for name in command.names {
+            self.commands.insert(name.to_string(), command);
+        }
 
         self
     }
@@ -448,16 +453,18 @@ impl Framework for RegexFramework {
                                 let member = guild.member(&ctx, &msg.author).await.unwrap();
 
                                 if command.check_permissions(&ctx, &guild, &member).await {
-                                    (command.func)(
+                                    (command.fun)(
                                         &ctx,
                                         &msg,
                                         Args::new(&args, &[Delimiter::Single(' ')]),
                                     )
                                     .await
                                     .unwrap();
-                                } else if command.required_perms == PermissionLevel::Managed {
+                                } else if command.required_permissions == PermissionLevel::Managed {
                                     let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
-                                } else if command.required_perms == PermissionLevel::Restricted {
+                                } else if command.required_permissions
+                                    == PermissionLevel::Restricted
+                                {
                                     let _ = msg
                                         .channel_id
                                         .say(&ctx, "You must be an Admin to do this command")

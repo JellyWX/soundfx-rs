@@ -1,4 +1,3 @@
-use crate::structures::CommandFun;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
@@ -10,8 +9,10 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Comma, Mut},
-    Ident, Lifetime, Lit, Type,
+    Attribute, Ident, Lifetime, Lit, Path, PathSegment, Type,
 };
+
+use crate::structures::CommandFun;
 
 pub trait LitExt {
     fn to_str(&self) -> String;
@@ -160,35 +161,17 @@ pub fn generate_type_validation(have: Type, expect: Type) -> syn::Stmt {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeclarFor {
-    Command,
-    Help,
-    Check,
-}
-
-pub fn create_declaration_validations(fun: &mut CommandFun, dec_for: DeclarFor) -> SynResult<()> {
-    let len = match dec_for {
-        DeclarFor::Command => 3,
-        DeclarFor::Help => 6,
-        DeclarFor::Check => 4,
-    };
-
-    if fun.args.len() > len {
+pub fn create_declaration_validations(fun: &mut CommandFun) -> SynResult<()> {
+    if fun.args.len() > 3 {
         return Err(Error::new(
             fun.args.last().unwrap().span(),
-            format_args!("function's arity exceeds more than {} arguments", len),
+            format_args!("function's arity exceeds more than 3 arguments"),
         ));
     }
 
     let context: Type = parse_quote!(&serenity::client::Context);
     let message: Type = parse_quote!(&(dyn crate::framework::CommandInvoke + Sync + Send));
     let args: Type = parse_quote!(serenity::framework::standard::Args);
-    let args2: Type = parse_quote!(&mut serenity::framework::standard::Args);
-    let options: Type = parse_quote!(&serenity::framework::standard::CommandOptions);
-    let hoptions: Type = parse_quote!(&'static serenity::framework::standard::HelpOptions);
-    let groups: Type = parse_quote!(&[&'static serenity::framework::standard::CommandGroup]);
-    let owners: Type = parse_quote!(std::collections::HashSet<serenity::model::id::UserId>);
 
     let mut index = 0;
 
@@ -209,21 +192,7 @@ pub fn create_declaration_validations(fun: &mut CommandFun, dec_for: DeclarFor) 
 
     spoof_or_check(context, "_ctx");
     spoof_or_check(message, "_msg");
-
-    if dec_for == DeclarFor::Check {
-        spoof_or_check(args2, "_args");
-        spoof_or_check(options, "_options");
-
-        return Ok(());
-    }
-
     spoof_or_check(args, "_args");
-
-    if dec_for == DeclarFor::Help {
-        spoof_or_check(hoptions, "_hoptions");
-        spoof_or_check(groups, "_groups");
-        spoof_or_check(owners, "_owners");
-    }
 
     Ok(())
 }
@@ -239,6 +208,34 @@ pub fn populate_fut_lifetimes_on_refs(args: &mut Vec<Argument>) {
     for arg in args {
         if let Type::Reference(reference) = &mut arg.kind {
             reference.lifetime = Some(Lifetime::new("'fut", Span::call_site()));
+        }
+    }
+}
+
+/// Renames all attributes that have a specific `name` to the `target`.
+pub fn rename_attributes(attributes: &mut Vec<Attribute>, name: &str, target: &str) {
+    for attr in attributes {
+        if attr.path.is_ident(name) {
+            attr.path = Path::from(PathSegment::from(Ident::new(target, Span::call_site())));
+        }
+    }
+}
+
+pub fn append_line(desc: &mut AsOption<String>, mut line: String) {
+    if line.starts_with(' ') {
+        line.remove(0);
+    }
+
+    let desc = desc.0.get_or_insert_with(String::default);
+
+    match line.rfind("\\$") {
+        Some(i) => {
+            desc.push_str(line[..i].trim_end());
+            desc.push(' ');
+        }
+        None => {
+            desc.push_str(&line);
+            desc.push('\n');
         }
     }
 }
