@@ -273,7 +273,6 @@ pub(crate) struct Arg {
     pub description: String,
     pub kind: ApplicationCommandOptionType,
     pub required: bool,
-    pub default: bool,
 }
 
 impl Default for Arg {
@@ -283,7 +282,6 @@ impl Default for Arg {
             description: String::new(),
             kind: ApplicationCommandOptionType::String,
             required: false,
-            default: false,
         }
     }
 }
@@ -291,7 +289,7 @@ impl Default for Arg {
 #[derive(Debug, Default)]
 pub(crate) struct Options {
     pub aliases: Vec<String>,
-    pub description: AsOption<String>,
+    pub description: String,
     pub usage: AsOption<String>,
     pub examples: Vec<String>,
     pub required_permissions: PermissionLevel,

@@ -296,6 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 #[command]
+#[description("Get information on the commands of the bot")]
 async fn help(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -427,19 +428,18 @@ Please select a category from the following:
 #[command]
 #[aliases("p")]
 #[required_permissions(Managed)]
+#[description("Play a sound in your current voice channel")]
 #[arg(
     name = "query",
     description = "Play sound with the specified name or ID",
     kind = "String",
-    required = true,
-    default = true
+    required = true
 )]
 #[arg(
     name = "loop",
     description = "Whether to loop the sound or not (default: no)",
     kind = "Boolean",
-    required = false,
-    default = false
+    required = false
 )]
 async fn play(
     ctx: &Context,
@@ -461,6 +461,7 @@ async fn play(
 
 #[command("loop")]
 #[required_permissions(Managed)]
+#[description("Play a sound on loop in your current voice channel")]
 #[arg(
     name = "query",
     description = "Play sound with the specified name or ID",
@@ -546,6 +547,7 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
 
 #[command("ambience")]
 #[required_permissions(Managed)]
+#[description("Play ambient sound in your current voice channel")]
 #[arg(
     name = "name",
     description = "Play sound with the specified name",
@@ -641,6 +643,7 @@ __Available ambience sounds:__
 
 #[command("stop")]
 #[required_permissions(Managed)]
+#[description("Stop the bot from playing")]
 async fn stop_playing(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -663,6 +666,7 @@ async fn stop_playing(
 #[command]
 #[aliases("dc")]
 #[required_permissions(Managed)]
+#[description("Disconnect the bot")]
 async fn disconnect(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -678,6 +682,7 @@ async fn disconnect(
 
 #[command]
 #[aliases("invite")]
+#[description("Get additional information on the bot")]
 async fn info(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -717,6 +722,7 @@ There is a maximum sound limit per user. This can be removed by subscribing at *
 #[command("volume")]
 #[aliases("vol")]
 #[required_permissions(Managed)]
+#[description("Change the bot's volume in this server")]
 async fn change_volume(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1087,6 +1093,7 @@ INSERT INTO roles (guild_id, role)
 }
 
 #[command("list")]
+#[description("Show the sounds uploaded by you or to your server")]
 #[arg(
     name = "me",
     description = "Whether to list your sounds or server sounds (default: server)",
@@ -1154,6 +1161,7 @@ async fn list_sounds(
 }
 
 #[command("public")]
+#[description("Change a sound between public and private")]
 async fn change_public(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1219,6 +1227,7 @@ async fn change_public(
 }
 
 #[command("delete")]
+#[description("Delete a sound you have uploaded")]
 async fn delete_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1323,6 +1332,7 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
 }
 
 #[command("search")]
+#[description("Search for sounds")]
 async fn search_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1355,6 +1365,7 @@ async fn search_sounds(
 }
 
 #[command("popular")]
+#[description("Show popular sounds")]
 async fn show_popular_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1389,6 +1400,7 @@ SELECT name, id, plays, public, server_id, uploader_id
 }
 
 #[command("random")]
+#[description("Show a page of random sounds")]
 async fn show_random_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1424,6 +1436,7 @@ SELECT name, id, plays, public, server_id, uploader_id
 }
 
 #[command("greet")]
+#[description("Set a join sound")]
 async fn set_greet_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1490,7 +1503,8 @@ async fn set_greet_sound(
 }
 
 #[command("allow_greet")]
-#[required_permissions(Managed)]
+#[description("Configure whether users should be able to use join sounds")]
+#[required_permissions(Restricted)]
 async fn allow_greet_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),

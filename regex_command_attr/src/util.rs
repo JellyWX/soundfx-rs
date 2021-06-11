@@ -221,12 +221,10 @@ pub fn rename_attributes(attributes: &mut Vec<Attribute>, name: &str, target: &s
     }
 }
 
-pub fn append_line(desc: &mut AsOption<String>, mut line: String) {
+pub fn append_line(desc: &mut String, mut line: String) {
     if line.starts_with(' ') {
         line.remove(0);
     }
-
-    let desc = desc.0.get_or_insert_with(String::default);
 
     match line.rfind("\\$") {
         Some(i) => {

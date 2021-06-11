@@ -119,7 +119,6 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
                 description,
                 kind,
                 required,
-                default,
             } = arg;
 
             let an = n.with_suffix(name.as_str()).with_suffix(ARG);
@@ -130,9 +129,8 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
                 pub static #an: #arg_path = #arg_path {
                     name: #name,
                     description: #description,
-                    required: #required,
-                    default: #default,
                     kind: #kind,
+                    required: #required,
                 };
             }
         })

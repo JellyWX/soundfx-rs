@@ -24,7 +24,7 @@ use log::{error, info, warn};
 
 use regex::{Match, Regex, RegexBuilder};
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, env, fmt};
 
 use crate::{guild_data::CtxGuildData, MySQL};
 use std::sync::Arc;
@@ -196,13 +196,12 @@ pub struct Arg {
     pub description: &'static str,
     pub kind: ApplicationCommandOptionType,
     pub required: bool,
-    pub default: bool,
 }
 
 pub struct Command {
     pub fun: CommandFn,
     pub names: &'static [&'static str],
-    pub desc: Option<&'static str>,
+    pub desc: &'static str,
     pub usage: Option<&'static str>,
     pub examples: &'static [&'static str],
     pub required_permissions: PermissionLevel,
@@ -364,7 +363,45 @@ impl RegexFramework {
     }
 
     pub async fn build_slash(&self, http: impl AsRef<Http>) {
-        //
+        info!("Building slash commands...");
+
+        let mut count = 0;
+
+        if let Some(guild_id) = env::var("TEST_GUILD")
+            .map(|v| v.parse::<u64>().ok())
+            .ok()
+            .flatten()
+            .map(|v| GuildId(v))
+        {
+            for (handle, command) in self.commands.iter().filter(|(_, c)| c.allow_slash) {
+                guild_id
+                    .create_application_command(&http, |a| {
+                        a.name(handle).description(command.desc);
+
+                        for arg in command.args {
+                            a.create_option(|o| {
+                                o.name(arg.name)
+                                    .description(arg.description)
+                                    .kind(arg.kind)
+                                    .required(arg.required)
+                            });
+                        }
+
+                        a
+                    })
+                    .await
+                    .expect(&format!(
+                        "Failed to create application command for {}",
+                        handle
+                    ));
+
+                count += 1;
+            }
+        } else {
+            // register application commands globally
+        }
+
+        info!("{} slash commands built! Ready to go", count);
     }
 }
 

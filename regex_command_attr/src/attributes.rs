@@ -339,9 +339,6 @@ impl AttributeOption for Arg {
                     "required" => {
                         arg.required = value.to_bool();
                     }
-                    "default" => {
-                        arg.default = value.to_bool();
-                    }
                     "kind" => arg.kind = ApplicationCommandOptionType::from_str(value.to_str()),
                     _ => {
                         return Err(Error::new(key.span(), "unexpected attribute"));
