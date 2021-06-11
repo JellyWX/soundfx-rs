@@ -27,6 +27,7 @@ use regex::{Match, Regex, RegexBuilder};
 use std::{collections::HashMap, env, fmt};
 
 use crate::{guild_data::CtxGuildData, MySQL};
+use serenity::model::prelude::InteractionType;
 use std::sync::Arc;
 
 type CommandFn = for<'fut> fn(
@@ -142,7 +143,11 @@ impl CommandInvoke for Interaction {
     }
 
     async fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
-        self.guild(cache).await
+        if let Some(guild_id) = self.guild_id {
+            guild_id.to_guild_cached(cache).await
+        } else {
+            None
+        }
     }
 
     fn author_id(&self) -> UserId {
@@ -402,6 +407,46 @@ impl RegexFramework {
         }
 
         info!("{} slash commands built! Ready to go", count);
+    }
+
+    pub async fn execute(&self, ctx: Context, interaction: Interaction) {
+        if interaction.kind == InteractionType::ApplicationCommand {
+            let command = {
+                let name = &interaction.data.as_ref().unwrap().name;
+
+                self.commands
+                    .get(name)
+                    .expect(&format!("Received invalid command: {}", name))
+            };
+
+            if command
+                .check_permissions(
+                    &ctx,
+                    &interaction.guild(ctx.cache.clone()).await.unwrap(),
+                    &interaction.member(&ctx).await.unwrap(),
+                )
+                .await
+            {
+                (command.fun)(&ctx, &interaction, Args::new("", &[Delimiter::Single(' ')]))
+                    .await
+                    .unwrap();
+            } else if command.required_permissions == PermissionLevel::Managed {
+                let _ = interaction
+                    .respond(
+                        ctx.http.clone(),
+                        CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
+                    )
+                    .await;
+            } else if command.required_permissions == PermissionLevel::Restricted {
+                let _ = interaction
+                    .respond(
+                        ctx.http.clone(),
+                        CreateGenericResponse::new()
+                            .content("You must be an Admin to do this command"),
+                    )
+                    .await;
+            }
+        }
     }
 }
 

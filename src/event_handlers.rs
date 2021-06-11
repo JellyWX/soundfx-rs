@@ -171,6 +171,14 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        //
+        let framework = ctx
+            .data
+            .read()
+            .await
+            .get::<RegexFramework>()
+            .cloned()
+            .expect("RegexFramework not found in context");
+
+        framework.execute(ctx, interaction).await;
     }
 }

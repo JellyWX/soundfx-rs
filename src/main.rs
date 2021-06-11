@@ -315,9 +315,9 @@ async fn help(
         };
 
         invoke
-            .channel_id()
-            .send_message(&ctx, |m| {
-                m.embed(|e| {
+            .respond(
+                ctx.http.clone(),
+                CreateGenericResponse::new().embed(|e| {
                     e.title("Help")
                         .color(THEME_COLOR)
                         .description(description)
@@ -327,8 +327,8 @@ async fn help(
                         .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
                         .field("Search", "`search` `random` `popular`", false)
                         .field("Other", "`greet` `ambience`", false)
-                })
-            })
+                }),
+            )
             .await?;
     } else {
         let body = match args.rest().to_lowercase().as_str() {
@@ -415,10 +415,11 @@ Please select a category from the following:
         };
 
         invoke
-            .channel_id()
-            .send_message(&ctx, |m| {
-                m.embed(|e| e.title("Help").color(THEME_COLOR).description(body))
-            })
+            .respond(
+                ctx.http.clone(),
+                CreateGenericResponse::new()
+                    .embed(|e| e.title("Help").color(THEME_COLOR).description(body)),
+            )
             .await?;
     }
 
