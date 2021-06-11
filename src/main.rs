@@ -215,6 +215,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     framework = framework.build();
 
+    let framework_arc = Arc::new(framework);
+
     let mut client =
         Client::builder(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
             .intents(
@@ -222,7 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     | GatewayIntents::GUILD_MESSAGES
                     | GatewayIntents::GUILDS,
             )
-            .framework(framework)
+            .framework_arc(framework_arc.clone())
             .application_id(application_id.0)
             .event_handler(Handler)
             .register_songbird()
@@ -242,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         data.insert::<GuildDataCache>(guild_data_cache);
         data.insert::<JoinSoundCache>(join_sound_cache);
         data.insert::<MySQL>(mysql_pool);
-
+        data.insert::<RegexFramework>(framework_arc.clone());
         data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
 
         if let Some(audio_index) = audio_index {
@@ -425,6 +427,20 @@ Please select a category from the following:
 #[command]
 #[aliases("p")]
 #[required_permissions(Managed)]
+#[arg(
+    name = "query",
+    description = "Play sound with the specified name or ID",
+    kind = "String",
+    required = true,
+    default = true
+)]
+#[arg(
+    name = "loop",
+    description = "Whether to loop the sound or not (default: no)",
+    kind = "Boolean",
+    required = false,
+    default = false
+)]
 async fn play(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -443,8 +459,14 @@ async fn play(
     Ok(())
 }
 
-#[command]
+#[command("loop")]
 #[required_permissions(Managed)]
+#[arg(
+    name = "query",
+    description = "Play sound with the specified name or ID",
+    kind = "String",
+    required = true
+)]
 async fn loop_play(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -524,6 +546,12 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
 
 #[command("ambience")]
 #[required_permissions(Managed)]
+#[arg(
+    name = "name",
+    description = "Play sound with the specified name",
+    kind = "String",
+    required = false
+)]
 async fn play_ambience(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -687,6 +715,7 @@ There is a maximum sound limit per user. This can be removed by subscribing at *
 }
 
 #[command("volume")]
+#[aliases("vol")]
 #[required_permissions(Managed)]
 async fn change_volume(
     ctx: &Context,
@@ -753,6 +782,7 @@ async fn change_volume(
 
 #[command("prefix")]
 #[required_permissions(Restricted)]
+#[allow_slash(false)]
 async fn change_prefix(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1057,6 +1087,12 @@ INSERT INTO roles (guild_id, role)
 }
 
 #[command("list")]
+#[arg(
+    name = "me",
+    description = "Whether to list your sounds or server sounds (default: server)",
+    kind = "Boolean",
+    required = false
+)]
 async fn list_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),

@@ -1,14 +1,10 @@
-use std::str::FromStr;
-
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
 use syn::{
     braced,
     parse::{Error, Parse, ParseStream, Result},
-    punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Block, Expr, ExprClosure, FnArg, Ident, Pat, ReturnType, Stmt, Token, Type,
-    Visibility,
+    Attribute, Block, FnArg, Ident, Pat, ReturnType, Stmt, Token, Type, Visibility,
 };
 
 use crate::util::{self, Argument, AsOption, Parenthesised};
@@ -170,115 +166,6 @@ impl ToTokens for CommandFun {
 }
 
 #[derive(Debug)]
-pub struct FunctionHook {
-    /// `#[...]`-style attributes.
-    pub attributes: Vec<Attribute>,
-    /// Populated by cooked attributes. These are attributes outside of the realm of this crate's procedural macros
-    /// and will appear in generated output.
-    pub cooked: Vec<Attribute>,
-    pub visibility: Visibility,
-    pub name: Ident,
-    pub args: Vec<Argument>,
-    pub ret: Type,
-    pub body: Vec<Stmt>,
-}
-
-#[derive(Debug)]
-pub struct ClosureHook {
-    /// `#[...]`-style attributes.
-    pub attributes: Vec<Attribute>,
-    /// Populated by cooked attributes. These are attributes outside of the realm of this crate's procedural macros
-    /// and will appear in generated output.
-    pub cooked: Vec<Attribute>,
-    pub args: Punctuated<Pat, Token![,]>,
-    pub ret: ReturnType,
-    pub body: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub enum Hook {
-    Function(FunctionHook),
-    Closure(ClosureHook),
-}
-
-impl Parse for Hook {
-    fn parse(input: ParseStream<'_>) -> Result<Self> {
-        let mut attributes = input.call(Attribute::parse_outer)?;
-        let cooked = remove_cooked(&mut attributes);
-
-        if is_function(input) {
-            parse_function_hook(input, attributes, cooked).map(Self::Function)
-        } else {
-            parse_closure_hook(input, attributes, cooked).map(Self::Closure)
-        }
-    }
-}
-
-fn is_function(input: ParseStream<'_>) -> bool {
-    input.peek(Token![pub]) || (input.peek(Token![async]) && input.peek2(Token![fn]))
-}
-
-fn parse_function_hook(
-    input: ParseStream<'_>,
-    attributes: Vec<Attribute>,
-    cooked: Vec<Attribute>,
-) -> Result<FunctionHook> {
-    let visibility = input.parse::<Visibility>()?;
-
-    input.parse::<Token![async]>()?;
-    input.parse::<Token![fn]>()?;
-
-    let name = input.parse()?;
-
-    // (...)
-    let Parenthesised(args) = input.parse::<Parenthesised<FnArg>>()?;
-
-    let ret = match input.parse::<ReturnType>()? {
-        ReturnType::Type(_, t) => (*t).clone(),
-        ReturnType::Default => {
-            Type::Verbatim(TokenStream2::from_str("()").expect("Invalid str to create `()`-type"))
-        }
-    };
-
-    // { ... }
-    let bcont;
-    braced!(bcont in input);
-    let body = bcont.call(Block::parse_within)?;
-
-    let args = args
-        .into_iter()
-        .map(parse_argument)
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(FunctionHook {
-        attributes,
-        cooked,
-        visibility,
-        name,
-        args,
-        ret,
-        body,
-    })
-}
-
-fn parse_closure_hook(
-    input: ParseStream<'_>,
-    attributes: Vec<Attribute>,
-    cooked: Vec<Attribute>,
-) -> Result<ClosureHook> {
-    input.parse::<Token![async]>()?;
-    let closure = input.parse::<ExprClosure>()?;
-
-    Ok(ClosureHook {
-        attributes,
-        cooked,
-        args: closure.inputs,
-        ret: closure.output,
-        body: closure.body,
-    })
-}
-
-#[derive(Debug)]
 pub enum PermissionLevel {
     Unrestricted,
     Managed,
@@ -327,14 +214,89 @@ impl ToTokens for PermissionLevel {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum ApplicationCommandOptionType {
+    SubCommand,
+    SubCommandGroup,
+    String,
+    Integer,
+    Boolean,
+    User,
+    Channel,
+    Role,
+    Mentionable,
+    Unknown,
+}
+
+impl ApplicationCommandOptionType {
+    pub fn from_str(s: String) -> Self {
+        match s.as_str() {
+            "SubCommand" => Self::SubCommand,
+            "SubCommandGroup" => Self::SubCommandGroup,
+            "String" => Self::String,
+            "Integer" => Self::Integer,
+            "Boolean" => Self::Boolean,
+            "User" => Self::User,
+            "Channel" => Self::Channel,
+            "Role" => Self::Role,
+            "Mentionable" => Self::Mentionable,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl ToTokens for ApplicationCommandOptionType {
+    fn to_tokens(&self, stream: &mut TokenStream2) {
+        let path = quote!(serenity::model::interactions::ApplicationCommandOptionType);
+        let variant = match self {
+            ApplicationCommandOptionType::SubCommand => quote!(SubCommand),
+            ApplicationCommandOptionType::SubCommandGroup => quote!(SubCommandGroup),
+            ApplicationCommandOptionType::String => quote!(String),
+            ApplicationCommandOptionType::Integer => quote!(Integer),
+            ApplicationCommandOptionType::Boolean => quote!(Boolean),
+            ApplicationCommandOptionType::User => quote!(User),
+            ApplicationCommandOptionType::Channel => quote!(Channel),
+            ApplicationCommandOptionType::Role => quote!(Role),
+            ApplicationCommandOptionType::Mentionable => quote!(Mentionable),
+            ApplicationCommandOptionType::Unknown => quote!(Unknown),
+        };
+
+        stream.extend(quote! {
+            #path::#variant
+        });
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Arg {
+    pub name: String,
+    pub description: String,
+    pub kind: ApplicationCommandOptionType,
+    pub required: bool,
+    pub default: bool,
+}
+
+impl Default for Arg {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            kind: ApplicationCommandOptionType::String,
+            required: false,
+            default: false,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
-pub struct Options {
+pub(crate) struct Options {
     pub aliases: Vec<String>,
     pub description: AsOption<String>,
     pub usage: AsOption<String>,
     pub examples: Vec<String>,
     pub required_permissions: PermissionLevel,
     pub allow_slash: bool,
+    pub cmd_args: Vec<Arg>,
 }
 
 impl Options {

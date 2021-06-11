@@ -1,4 +1,5 @@
 use crate::{
+    framework::RegexFramework,
     guild_data::CtxGuildData,
     join_channel, play_audio,
     sound::{JoinSoundCtx, Sound},
@@ -8,7 +9,9 @@ use crate::{
 use serenity::{
     async_trait,
     client::{Context, EventHandler},
-    model::{channel::Channel, guild::Guild, id::GuildId, voice::VoiceState},
+    model::{
+        channel::Channel, guild::Guild, id::GuildId, interactions::Interaction, voice::VoiceState,
+    },
     utils::shard_id,
 };
 
@@ -33,6 +36,18 @@ pub struct Handler;
 
 #[serenity::async_trait]
 impl EventHandler for Handler {
+    async fn cache_ready(&self, ctx: Context, _: Vec<GuildId>) {
+        let framework = ctx
+            .data
+            .read()
+            .await
+            .get::<RegexFramework>()
+            .cloned()
+            .expect("RegexFramework not found in context");
+
+        framework.build_slash(ctx).await;
+    }
+
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
         if is_new {
             if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {
@@ -153,5 +168,9 @@ SELECT name, id, plays, public, server_id, uploader_id
                 }
             }
         }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        //
     }
 }

@@ -1,7 +1,8 @@
 use serenity::{
     async_trait,
+    builder::CreateEmbed,
+    cache::Cache,
     client::Context,
-    constants::MESSAGE_CODE_LIMIT,
     framework::{
         standard::{Args, CommandResult, Delimiter},
         Framework,
@@ -13,7 +14,9 @@ use serenity::{
         guild::{Guild, Member},
         id::{ChannelId, GuildId, UserId},
         interactions::Interaction,
+        prelude::{ApplicationCommandOptionType, InteractionResponseType},
     },
+    prelude::TypeMapKey,
     Result as SerenityResult,
 };
 
@@ -24,9 +27,6 @@ use regex::{Match, Regex, RegexBuilder};
 use std::{collections::HashMap, fmt};
 
 use crate::{guild_data::CtxGuildData, MySQL};
-use serenity::builder::CreateEmbed;
-use serenity::cache::Cache;
-use serenity::model::prelude::InteractionResponseType;
 use std::sync::Arc;
 
 type CommandFn = for<'fut> fn(
@@ -190,6 +190,15 @@ pub enum PermissionLevel {
     Restricted,
 }
 
+#[derive(Debug)]
+pub struct Arg {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub kind: ApplicationCommandOptionType,
+    pub required: bool,
+    pub default: bool,
+}
+
 pub struct Command {
     pub fun: CommandFn,
     pub names: &'static [&'static str],
@@ -198,6 +207,7 @@ pub struct Command {
     pub examples: &'static [&'static str],
     pub required_permissions: PermissionLevel,
     pub allow_slash: bool,
+    pub args: &'static [&'static Arg],
 }
 
 impl Command {
@@ -267,50 +277,8 @@ impl fmt::Debug for Command {
         f.debug_struct("Command")
             .field("name", &self.names[0])
             .field("required_permissions", &self.required_permissions)
+            .field("args", &self.args)
             .finish()
-    }
-}
-
-#[async_trait]
-pub trait SendIterator {
-    async fn say_lines(
-        self,
-        http: impl AsRef<Http> + Send + Sync + 'async_trait,
-        content: impl Iterator<Item = String> + Send + 'async_trait,
-    ) -> SerenityResult<()>;
-}
-
-#[async_trait]
-impl SendIterator for ChannelId {
-    async fn say_lines(
-        self,
-        http: impl AsRef<Http> + Send + Sync + 'async_trait,
-        content: impl Iterator<Item = String> + Send + 'async_trait,
-    ) -> SerenityResult<()> {
-        let mut current_content = String::new();
-
-        for line in content {
-            if current_content.len() + line.len() > MESSAGE_CODE_LIMIT as usize {
-                self.send_message(&http, |m| {
-                    m.allowed_mentions(|am| am.empty_parse())
-                        .content(&current_content)
-                })
-                .await?;
-
-                current_content = line;
-            } else {
-                current_content = format!("{}\n{}", current_content, line);
-            }
-        }
-        if !current_content.is_empty() {
-            self.send_message(&http, |m| {
-                m.allowed_mentions(|am| am.empty_parse())
-                    .content(&current_content)
-            })
-            .await?;
-        }
-
-        Ok(())
     }
 }
 
@@ -321,6 +289,10 @@ pub struct RegexFramework {
     client_id: u64,
     ignore_bots: bool,
     case_insensitive: bool,
+}
+
+impl TypeMapKey for RegexFramework {
+    type Value = Arc<RegexFramework>;
 }
 
 impl RegexFramework {
@@ -354,6 +326,8 @@ impl RegexFramework {
     }
 
     pub fn add_command(mut self, command: &'static Command) -> Self {
+        info!("{:?}", command);
+
         for name in command.names {
             self.commands.insert(name.to_string(), command);
         }
@@ -387,6 +361,10 @@ impl RegexFramework {
         }
 
         self
+    }
+
+    pub async fn build_slash(&self, http: impl AsRef<Http>) {
+        //
     }
 }
 
