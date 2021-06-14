@@ -9,7 +9,7 @@ mod sound;
 
 use crate::{
     event_handlers::{Handler, RestartTrack},
-    framework::{CommandInvoke, CreateGenericResponse, RegexFramework},
+    framework::{Args, CommandInvoke, CreateGenericResponse, RegexFramework},
     guild_data::{CtxGuildData, GuildData},
     sound::{JoinSoundCtx, Sound},
 };
@@ -20,7 +20,7 @@ use regex_command_attr::command;
 
 use serenity::{
     client::{bridge::gateway::GatewayIntents, Client, Context},
-    framework::standard::{Args, CommandResult},
+    framework::standard::CommandResult,
     http::Http,
     model::{
         guild::Guild,
@@ -297,41 +297,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 #[command]
 #[description("Get information on the commands of the bot")]
+#[arg(
+    name = "category",
+    description = "Get help for a specific category",
+    kind = "String",
+    required = false
+)]
 async fn help(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    if args.is_empty() {
-        let description = {
-            let guild_data = ctx.guild_data(invoke.guild_id().unwrap()).await.unwrap();
-
-            let read_lock = guild_data.read().await;
-
-            format!(
-                "Type `{}help category` to view help for a command category below:",
-                read_lock.prefix
-            )
-        };
-
-        invoke
-            .respond(
-                ctx.http.clone(),
-                CreateGenericResponse::new().embed(|e| {
-                    e.title("Help")
-                        .color(THEME_COLOR)
-                        .description(description)
-                        .field("Info", "`help` `info` `invite` `donate`", false)
-                        .field("Play", "`play` `p` `stop` `dc` `loop`", false)
-                        .field("Manage", "`upload` `delete` `list` `public`", false)
-                        .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
-                        .field("Search", "`search` `random` `popular`", false)
-                        .field("Other", "`greet` `ambience`", false)
-                }),
-            )
-            .await?;
-    } else {
-        let body = match args.rest().to_lowercase().as_str() {
+    if let Some(category) = args.named("category") {
+        let body = match category.to_lowercase().as_str() {
             "info" => {
                 "__Info Commands__
 `help` - view all commands
@@ -421,6 +399,34 @@ Please select a category from the following:
                     .embed(|e| e.title("Help").color(THEME_COLOR).description(body)),
             )
             .await?;
+    } else {
+        let description = {
+            let guild_data = ctx.guild_data(invoke.guild_id().unwrap()).await.unwrap();
+
+            let read_lock = guild_data.read().await;
+
+            format!(
+                "Type `{}help category` to view help for a command category below:",
+                read_lock.prefix
+            )
+        };
+
+        invoke
+            .respond(
+                ctx.http.clone(),
+                CreateGenericResponse::new().embed(|e| {
+                    e.title("Help")
+                        .color(THEME_COLOR)
+                        .description(description)
+                        .field("Info", "`help` `info` `invite` `donate`", false)
+                        .field("Play", "`play` `p` `stop` `dc` `loop`", false)
+                        .field("Manage", "`upload` `delete` `list` `public`", false)
+                        .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
+                        .field("Search", "`search` `random` `popular`", false)
+                        .field("Other", "`greet` `ambience`", false)
+                }),
+            )
+            .await?;
     }
 
     Ok(())
@@ -435,12 +441,6 @@ Please select a category from the following:
     description = "Play sound with the specified name or ID",
     kind = "String",
     required = true
-)]
-#[arg(
-    name = "loop",
-    description = "Whether to loop the sound or not (default: no)",
-    kind = "Boolean",
-    required = false
 )]
 async fn play(
     ctx: &Context,
@@ -497,7 +497,7 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
 
     match channel_to_join {
         Some(user_channel) => {
-            let search_term = args.rest();
+            let search_term = args.named("query").unwrap();
 
             let pool = ctx
                 .data
@@ -569,7 +569,7 @@ async fn play_ambience(
 
     match channel_to_join {
         Some(user_channel) => {
-            let search_name = args.rest().to_lowercase();
+            let search_name = args.named("query").unwrap().to_lowercase();
             let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
 
             if let Some(filename) = audio_index.get(&search_name) {
@@ -724,10 +724,16 @@ There is a maximum sound limit per user. This can be removed by subscribing at *
 #[aliases("vol")]
 #[required_permissions(Managed)]
 #[description("Change the bot's volume in this server")]
+#[arg(
+    name = "volume",
+    description = "New volume for the bot to use",
+    kind = "Integer",
+    required = false
+)]
 async fn change_volume(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
-    mut args: Args,
+    args: Args,
 ) -> CommandResult {
     let pool = ctx
         .data
@@ -740,36 +746,17 @@ async fn change_volume(
     let guild_data_opt = ctx.guild_data(invoke.guild_id().unwrap()).await;
     let guild_data = guild_data_opt.unwrap();
 
-    if args.len() == 1 {
-        match args.single::<u8>() {
-            Ok(volume) => {
-                guild_data.write().await.volume = volume;
+    if let Some(volume) = args.named("volume").map(|i| i.parse::<u8>().ok()).flatten() {
+        guild_data.write().await.volume = volume;
 
-                guild_data.read().await.commit(pool).await?;
+        guild_data.read().await.commit(pool).await?;
 
-                invoke
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new()
-                            .content(format!("Volume changed to {}%", volume)),
-                    )
-                    .await?;
-            }
-
-            Err(_) => {
-                let read = guild_data.read().await;
-
-                invoke
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new().content(format!(
-                            "Current server volume: {vol}%. Change the volume with `/volume <new volume>`",
-                            vol = read.volume
-                        )),
-                    )
-                    .await?;
-            }
-        }
+        invoke
+            .respond(
+                ctx.http.clone(),
+                CreateGenericResponse::new().content(format!("Volume changed to {}%", volume)),
+            )
+            .await?;
     } else {
         let read = guild_data.read().await;
 
@@ -793,7 +780,7 @@ async fn change_volume(
 async fn change_prefix(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
-    mut args: Args,
+    args: Args,
 ) -> CommandResult {
     let pool = ctx
         .data
@@ -811,50 +798,34 @@ async fn change_prefix(
         guild_data = guild_data_opt.unwrap();
     }
 
-    if args.len() == 1 {
-        match args.single::<String>() {
-            Ok(prefix) => {
-                if prefix.len() <= 5 {
-                    let reply = format!("Prefix changed to `{}`", prefix);
+    if let Some(prefix) = args.named("prefix") {
+        if prefix.len() <= 5 {
+            let reply = format!("Prefix changed to `{}`", prefix);
 
-                    {
-                        guild_data.write().await.prefix = prefix;
-                    }
-
-                    {
-                        let read = guild_data.read().await;
-
-                        read.commit(pool).await?;
-                    }
-
-                    invoke
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new().content(reply),
-                        )
-                        .await?;
-                } else {
-                    invoke
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new()
-                                .content("Prefix must be less than 5 characters long"),
-                        )
-                        .await?;
-                }
+            {
+                guild_data.write().await.prefix = prefix.to_string();
             }
 
-            Err(_) => {
-                invoke
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new().content(format!(
-                            "Usage: `{prefix}prefix <new prefix>`",
-                            prefix = guild_data.read().await.prefix
-                        )),
-                    )
-                    .await?;
+            {
+                let read = guild_data.read().await;
+
+                read.commit(pool).await?;
             }
+
+            invoke
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new().content(reply),
+                )
+                .await?;
+        } else {
+            invoke
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new()
+                        .content("Prefix must be less than 5 characters long"),
+                )
+                .await?;
         }
     } else {
         invoke
@@ -873,6 +844,12 @@ async fn change_prefix(
 
 #[command("upload")]
 #[allow_slash(false)]
+#[arg(
+    name = "name",
+    description = "Name to upload sound to",
+    kind = "String",
+    required = true
+)]
 async fn upload_new_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -891,7 +868,10 @@ async fn upload_new_sound(
         true
     }
 
-    let new_name = args.rest().to_string();
+    let new_name = args
+        .named("name")
+        .map(|n| n.to_string())
+        .unwrap_or(String::new());
 
     if !new_name.is_empty() && new_name.len() <= 20 {
         if !is_numeric(&new_name) {
@@ -1023,7 +1003,7 @@ async fn set_allowed_roles(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    if args.len() == 0 {
+    if args.is_empty() {
         let roles = sqlx::query!(
             "
 SELECT role
@@ -1117,7 +1097,7 @@ async fn list_sounds(
     let sounds;
     let mut message_buffer;
 
-    if args.rest() == "me" {
+    if args.named("me").is_some() {
         sounds = Sound::get_user_sounds(invoke.author_id(), pool).await?;
 
         message_buffer = "All your sounds: ".to_string();
@@ -1178,7 +1158,7 @@ async fn change_public(
 
     let uid = invoke.author_id().as_u64().to_owned();
 
-    let name = args.rest();
+    let name = args.named("query").unwrap();
     let gid = *invoke.guild_id().unwrap().as_u64();
 
     let mut sound_vec = Sound::search_for_sound(name, gid, uid, pool.clone(), true).await?;
@@ -1245,7 +1225,7 @@ async fn delete_sound(
     let uid = invoke.author_id().0;
     let gid = invoke.guild_id().unwrap().0;
 
-    let name = args.rest();
+    let name = args.named("query").unwrap();
 
     let sound_vec = Sound::search_for_sound(name, gid, uid, pool.clone(), true).await?;
     let sound_result = sound_vec.first();
@@ -1347,7 +1327,7 @@ async fn search_sounds(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let query = args.rest();
+    let query = args.named("query").unwrap();
 
     let search_results = Sound::search_for_sound(
         query,
@@ -1451,7 +1431,7 @@ async fn set_greet_sound(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let query = args.rest();
+    let query = args.named("query").unwrap();
     let user_id = invoke.author_id();
 
     if query.len() == 0 {

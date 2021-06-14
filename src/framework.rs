@@ -3,17 +3,14 @@ use serenity::{
     builder::CreateEmbed,
     cache::Cache,
     client::Context,
-    framework::{
-        standard::{Args, CommandResult, Delimiter},
-        Framework,
-    },
+    framework::{standard::CommandResult, Framework},
     futures::prelude::future::BoxFuture,
     http::Http,
     model::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
         id::{ChannelId, GuildId, UserId},
-        interactions::Interaction,
+        interactions::{ApplicationCommand, Interaction, InteractionType},
         prelude::{ApplicationCommandOptionType, InteractionResponseType},
     },
     prelude::TypeMapKey,
@@ -24,17 +21,63 @@ use log::{error, info, warn};
 
 use regex::{Match, Regex, RegexBuilder};
 
-use std::{collections::HashMap, env, fmt};
+use std::{collections::HashMap, env, fmt, sync::Arc};
 
 use crate::{guild_data::CtxGuildData, MySQL};
-use serenity::model::prelude::InteractionType;
-use std::sync::Arc;
 
 type CommandFn = for<'fut> fn(
     &'fut Context,
     &'fut (dyn CommandInvoke + Sync + Send),
     Args,
 ) -> BoxFuture<'fut, CommandResult>;
+
+pub struct Args {
+    args: HashMap<String, String>,
+}
+
+impl Args {
+    pub fn from(message: &str, arg_schema: &'static [&'static Arg]) -> Self {
+        // construct regex from arg schema
+        let mut re = arg_schema
+            .iter()
+            .map(|a| a.to_regex())
+            .collect::<Vec<String>>()
+            .join(r#"\s*"#);
+
+        re.push_str("$");
+
+        let regex = Regex::new(&re).unwrap();
+        let capture_names = regex.capture_names();
+        let captures = regex.captures(message);
+
+        let mut args = HashMap::new();
+
+        if let Some(captures) = captures {
+            for name in capture_names.filter(|n| n.is_some()).map(|n| n.unwrap()) {
+                args.insert(
+                    name.to_string(),
+                    captures.name(name).unwrap().as_str().to_string(),
+                );
+            }
+        }
+
+        Self { args }
+    }
+
+    pub fn len(&self) -> usize {
+        self.args.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.args.is_empty()
+    }
+
+    pub fn named<D: ToString>(&self, name: D) -> Option<&String> {
+        let name = name.to_string();
+
+        self.args.get(&name)
+    }
+}
 
 pub struct CreateGenericResponse {
     content: String,
@@ -201,6 +244,23 @@ pub struct Arg {
     pub description: &'static str,
     pub kind: ApplicationCommandOptionType,
     pub required: bool,
+}
+
+impl Arg {
+    pub fn to_regex(&self) -> String {
+        match self.kind {
+            ApplicationCommandOptionType::String => format!(r#"(?P<{}>.*?)"#, self.name),
+            ApplicationCommandOptionType::Integer => format!(r#"(?P<{}>\d+)"#, self.name),
+            ApplicationCommandOptionType::Boolean => format!(r#"(?P<{0}>{0})?"#, self.name),
+            ApplicationCommandOptionType::User => format!(r#"<(@|@!)(?P<{}>\d+)>"#, self.name),
+            ApplicationCommandOptionType::Channel => format!(r#"<#(?P<{}>\d+)>"#, self.name),
+            ApplicationCommandOptionType::Role => format!(r#"<@&(?P<{}>\d+)>"#, self.name),
+            ApplicationCommandOptionType::Mentionable => {
+                format!(r#"<(?P<{0}_pref>@|@!|@&|#)(?P<{0}>\d+)>"#, self.name)
+            }
+            _ => String::new(),
+        }
+    }
 }
 
 pub struct Command {
@@ -403,7 +463,29 @@ impl RegexFramework {
                 count += 1;
             }
         } else {
-            // register application commands globally
+            for (handle, command) in self.commands.iter().filter(|(_, c)| c.allow_slash) {
+                ApplicationCommand::create_global_application_command(&http, |a| {
+                    a.name(handle).description(command.desc);
+
+                    for arg in command.args {
+                        a.create_option(|o| {
+                            o.name(arg.name)
+                                .description(arg.description)
+                                .kind(arg.kind)
+                                .required(arg.required)
+                        });
+                    }
+
+                    a
+                })
+                .await
+                .expect(&format!(
+                    "Failed to create application command for {}",
+                    handle
+                ));
+
+                count += 1;
+            }
         }
 
         info!("{} slash commands built! Ready to go", count);
@@ -411,40 +493,48 @@ impl RegexFramework {
 
     pub async fn execute(&self, ctx: Context, interaction: Interaction) {
         if interaction.kind == InteractionType::ApplicationCommand {
-            let command = {
-                let name = &interaction.data.as_ref().unwrap().name;
+            if let Some(data) = interaction.data.clone() {
+                let command = {
+                    let name = data.name;
 
-                self.commands
-                    .get(name)
-                    .expect(&format!("Received invalid command: {}", name))
-            };
+                    self.commands
+                        .get(&name)
+                        .expect(&format!("Received invalid command: {}", name))
+                };
 
-            if command
-                .check_permissions(
-                    &ctx,
-                    &interaction.guild(ctx.cache.clone()).await.unwrap(),
-                    &interaction.member(&ctx).await.unwrap(),
-                )
-                .await
-            {
-                (command.fun)(&ctx, &interaction, Args::new("", &[Delimiter::Single(' ')]))
+                if command
+                    .check_permissions(
+                        &ctx,
+                        &interaction.guild(ctx.cache.clone()).await.unwrap(),
+                        &interaction.member(&ctx).await.unwrap(),
+                    )
                     .await
-                    .unwrap();
-            } else if command.required_permissions == PermissionLevel::Managed {
-                let _ = interaction
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
-                    )
-                    .await;
-            } else if command.required_permissions == PermissionLevel::Restricted {
-                let _ = interaction
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new()
-                            .content("You must be an Admin to do this command"),
-                    )
-                    .await;
+                {
+                    let mut args = HashMap::new();
+
+                    for arg in data.options.iter().filter(|o| o.value.is_some()) {
+                        args.insert(arg.name.clone(), arg.value.clone().unwrap().to_string());
+                    }
+
+                    (command.fun)(&ctx, &interaction, Args { args })
+                        .await
+                        .unwrap();
+                } else if command.required_permissions == PermissionLevel::Managed {
+                    let _ = interaction
+                        .respond(
+                            ctx.http.clone(),
+                            CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
+                        )
+                        .await;
+                } else if command.required_permissions == PermissionLevel::Restricted {
+                    let _ = interaction
+                        .respond(
+                            ctx.http.clone(),
+                            CreateGenericResponse::new()
+                                .content("You must be an Admin to do this command"),
+                        )
+                        .await;
+                }
             }
         }
     }
@@ -513,13 +603,9 @@ impl Framework for RegexFramework {
                                 let member = guild.member(&ctx, &msg.author).await.unwrap();
 
                                 if command.check_permissions(&ctx, &guild, &member).await {
-                                    (command.fun)(
-                                        &ctx,
-                                        &msg,
-                                        Args::new(&args, &[Delimiter::Single(' ')]),
-                                    )
-                                    .await
-                                    .unwrap();
+                                    (command.fun)(&ctx, &msg, Args::from(&args, command.args))
+                                        .await
+                                        .unwrap();
                                 } else if command.required_permissions == PermissionLevel::Managed {
                                     let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
                                 } else if command.required_permissions

@@ -171,7 +171,7 @@ pub fn create_declaration_validations(fun: &mut CommandFun) -> SynResult<()> {
 
     let context: Type = parse_quote!(&serenity::client::Context);
     let message: Type = parse_quote!(&(dyn crate::framework::CommandInvoke + Sync + Send));
-    let args: Type = parse_quote!(serenity::framework::standard::Args);
+    let args: Type = parse_quote!(crate::framework::Args);
 
     let mut index = 0;
 
