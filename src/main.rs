@@ -450,10 +450,10 @@ async fn play(
     let guild = invoke.guild(ctx.cache.clone()).await.unwrap();
 
     invoke
-        .channel_id()
-        .say(
-            &ctx,
-            play_cmd(ctx, guild, invoke.author_id(), args, false).await,
+        .respond(
+            ctx.http.clone(),
+            CreateGenericResponse::new()
+                .content(play_cmd(ctx, guild, invoke.author_id(), args, false).await),
         )
         .await?;
 
@@ -498,6 +498,8 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
     match channel_to_join {
         Some(user_channel) => {
             let search_term = args.named("query").unwrap();
+
+            println!("{}", search_term);
 
             let pool = ctx
                 .data
@@ -569,7 +571,7 @@ async fn play_ambience(
 
     match channel_to_join {
         Some(user_channel) => {
-            let search_name = args.named("query").unwrap().to_lowercase();
+            let search_name = args.named("name").unwrap().to_lowercase();
             let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
 
             if let Some(filename) = audio_index.get(&search_name) {
@@ -661,6 +663,10 @@ async fn stop_playing(
         lock.stop();
     }
 
+    invoke
+        .respond(ctx.http.clone(), CreateGenericResponse::new().content("👍"))
+        .await?;
+
     Ok(())
 }
 
@@ -677,6 +683,10 @@ async fn disconnect(
 
     let songbird = songbird::get(ctx).await.unwrap();
     let _ = songbird.leave(guild_id).await;
+
+    invoke
+        .respond(ctx.http.clone(), CreateGenericResponse::new().content("👍"))
+        .await?;
 
     Ok(())
 }
@@ -1097,7 +1107,7 @@ async fn list_sounds(
     let sounds;
     let mut message_buffer;
 
-    if args.named("me").is_some() {
+    if args.named("me").map(|i| i.to_owned()) == Some("me".to_string()) {
         sounds = Sound::get_user_sounds(invoke.author_id(), pool).await?;
 
         message_buffer = "All your sounds: ".to_string();

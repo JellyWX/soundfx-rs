@@ -1691,8 +1691,8 @@ dependencies = [
 
 [[package]]
 name = "songbird"
-version = "0.2.0-beta.2"
-source = "git+https://github.com/FelixMcFelix/songbird?branch=ws-fix#a9ae0528405ed783153175f8d4d52dd51532aef3"
+version = "0.2.0-beta.3"
+source = "git+https://github.com/serenity-rs/songbird?branch=next#e0ea2f5fe2fe14cb2de0774227f27cb1175d8295"
 dependencies = [
  "async-trait",
  "async-tungstenite",

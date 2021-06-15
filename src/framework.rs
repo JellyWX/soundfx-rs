@@ -21,9 +21,15 @@ use log::{error, info, warn};
 
 use regex::{Match, Regex, RegexBuilder};
 
-use std::{collections::HashMap, env, fmt, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    env, fmt,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use crate::{guild_data::CtxGuildData, MySQL};
+use serde_json::Value;
 
 type CommandFn = for<'fut> fn(
     &'fut Context,
@@ -54,10 +60,9 @@ impl Args {
 
         if let Some(captures) = captures {
             for name in capture_names.filter(|n| n.is_some()).map(|n| n.unwrap()) {
-                args.insert(
-                    name.to_string(),
-                    captures.name(name).unwrap().as_str().to_string(),
-                );
+                if let Some(cap) = captures.name(name) {
+                    args.insert(name.to_string(), cap.as_str().to_string());
+                }
             }
         }
 
@@ -274,6 +279,20 @@ pub struct Command {
     pub args: &'static [&'static Arg],
 }
 
+impl Hash for Command {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.names[0].hash(state)
+    }
+}
+
+impl PartialEq for Command {
+    fn eq(&self, other: &Self) -> bool {
+        self.names[0] == other.names[0]
+    }
+}
+
+impl Eq for Command {}
+
 impl Command {
     async fn check_permissions(&self, ctx: &Context, guild: &Guild, member: &Member) -> bool {
         if self.required_permissions == PermissionLevel::Unrestricted {
@@ -348,6 +367,7 @@ impl fmt::Debug for Command {
 
 pub struct RegexFramework {
     commands: HashMap<String, &'static Command>,
+    commands_: HashSet<&'static Command>,
     command_matcher: Regex,
     default_prefix: String,
     client_id: u64,
@@ -363,6 +383,7 @@ impl RegexFramework {
     pub fn new<T: Into<u64>>(client_id: T) -> Self {
         Self {
             commands: HashMap::new(),
+            commands_: HashSet::new(),
             command_matcher: Regex::new(r#"^$"#).unwrap(),
             default_prefix: "".to_string(),
             client_id: client_id.into(),
@@ -391,6 +412,8 @@ impl RegexFramework {
 
     pub fn add_command(mut self, command: &'static Command) -> Self {
         info!("{:?}", command);
+
+        self.commands_.insert(command);
 
         for name in command.names {
             self.commands.insert(name.to_string(), command);
@@ -428,6 +451,11 @@ impl RegexFramework {
     }
 
     pub async fn build_slash(&self, http: impl AsRef<Http>) {
+        if env::var("REBUILD_COMMANDS").is_err() {
+            info!("No rebuild");
+            return;
+        }
+
         info!("Building slash commands...");
 
         let mut count = 0;
@@ -438,10 +466,10 @@ impl RegexFramework {
             .flatten()
             .map(|v| GuildId(v))
         {
-            for (handle, command) in self.commands.iter().filter(|(_, c)| c.allow_slash) {
+            for command in self.commands_.iter().filter(|c| c.allow_slash) {
                 guild_id
                     .create_application_command(&http, |a| {
-                        a.name(handle).description(command.desc);
+                        a.name(command.names[0]).description(command.desc);
 
                         for arg in command.args {
                             a.create_option(|o| {
@@ -457,15 +485,15 @@ impl RegexFramework {
                     .await
                     .expect(&format!(
                         "Failed to create application command for {}",
-                        handle
+                        command.names[0]
                     ));
 
                 count += 1;
             }
         } else {
-            for (handle, command) in self.commands.iter().filter(|(_, c)| c.allow_slash) {
+            for command in self.commands_.iter().filter(|c| c.allow_slash) {
                 ApplicationCommand::create_global_application_command(&http, |a| {
-                    a.name(handle).description(command.desc);
+                    a.name(command.names[0]).description(command.desc);
 
                     for arg in command.args {
                         a.create_option(|o| {
@@ -481,7 +509,7 @@ impl RegexFramework {
                 .await
                 .expect(&format!(
                     "Failed to create application command for {}",
-                    handle
+                    command.names[0]
                 ));
 
                 count += 1;
@@ -492,7 +520,8 @@ impl RegexFramework {
     }
 
     pub async fn execute(&self, ctx: Context, interaction: Interaction) {
-        if interaction.kind == InteractionType::ApplicationCommand {
+        if interaction.kind == InteractionType::ApplicationCommand && interaction.guild_id.is_some()
+        {
             if let Some(data) = interaction.data.clone() {
                 let command = {
                     let name = data.name;
@@ -513,7 +542,21 @@ impl RegexFramework {
                     let mut args = HashMap::new();
 
                     for arg in data.options.iter().filter(|o| o.value.is_some()) {
-                        args.insert(arg.name.clone(), arg.value.clone().unwrap().to_string());
+                        args.insert(
+                            arg.name.clone(),
+                            match arg.value.clone().unwrap() {
+                                Value::Bool(b) => {
+                                    if b {
+                                        arg.name.clone()
+                                    } else {
+                                        String::new()
+                                    }
+                                }
+                                Value::Number(n) => n.to_string(),
+                                Value::String(s) => s,
+                                _ => String::new(),
+                            },
+                        );
                     }
 
                     (command.fun)(&ctx, &interaction, Args { args })
