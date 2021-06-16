@@ -395,8 +395,12 @@ Please select a category from the following:
         invoke
             .respond(
                 ctx.http.clone(),
-                CreateGenericResponse::new()
-                    .embed(|e| e.title("Help").color(THEME_COLOR).description(body)),
+                CreateGenericResponse::new().embed(|e| {
+                    e.title("Help")
+                        .color(THEME_COLOR)
+                        .description(body)
+                        .footer(|f| f.text("Get slash command support! Reinvite from ?info"))
+                }),
             )
             .await?;
     } else {
@@ -711,7 +715,7 @@ async fn info(
 
 Reset prefix: `@{0} prefix ?`
 
-Invite me: https://discordapp.com/oauth2/authorize?client_id={1}&scope=bot&permissions=36703232
+Invite me: https://discord.com/api/oauth2/authorize?client_id={1}&permissions=3165184&scope=applications.commands%20bot
 
 **Welcome to SoundFX!**
 Developer: <@203532103185465344>
