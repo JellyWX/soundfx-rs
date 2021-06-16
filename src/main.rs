@@ -395,12 +395,8 @@ Please select a category from the following:
         invoke
             .respond(
                 ctx.http.clone(),
-                CreateGenericResponse::new().embed(|e| {
-                    e.title("Help")
-                        .color(THEME_COLOR)
-                        .description(body)
-                        .footer(|f| f.text("Get slash command support! Reinvite from ?info"))
-                }),
+                CreateGenericResponse::new()
+                    .embed(|e| e.title("Help").color(THEME_COLOR).description(body)),
             )
             .await?;
     } else {
@@ -705,7 +701,7 @@ async fn info(
 ) -> CommandResult {
     let current_user = ctx.cache.current_user().await;
 
-    invoke.channel_id().send_message(&ctx, |m| m
+    invoke.respond(ctx.http.clone(), CreateGenericResponse::new()
         .embed(|e| e
             .title("Info")
             .color(THEME_COLOR)
