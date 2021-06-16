@@ -451,11 +451,6 @@ impl RegexFramework {
     }
 
     pub async fn build_slash(&self, http: impl AsRef<Http>) {
-        if env::var("REBUILD_COMMANDS").is_err() {
-            info!("No rebuild");
-            return;
-        }
-
         info!("Building slash commands...");
 
         let mut count = 0;
@@ -491,28 +486,84 @@ impl RegexFramework {
                 count += 1;
             }
         } else {
-            for command in self.commands_.iter().filter(|c| c.allow_slash) {
-                ApplicationCommand::create_global_application_command(&http, |a| {
-                    a.name(command.names[0]).description(command.desc);
+            info!("Checking for existing commands...");
 
-                    for arg in command.args {
-                        a.create_option(|o| {
-                            o.name(arg.name)
-                                .description(arg.description)
-                                .kind(arg.kind)
-                                .required(arg.required)
-                        });
-                    }
-
-                    a
-                })
+            let current_commands = ApplicationCommand::get_global_application_commands(&http)
                 .await
-                .expect(&format!(
-                    "Failed to create application command for {}",
-                    command.names[0]
-                ));
+                .expect("Failed to fetch existing commands");
 
-                count += 1;
+            info!("Existing commands: {:?}", current_commands);
+
+            // delete commands not in use
+            for command in &current_commands {
+                if self
+                    .commands_
+                    .iter()
+                    .find(|c| c.names[0] == command.name)
+                    .is_none()
+                {
+                    info!("Deleting command {}", command.name);
+
+                    ApplicationCommand::delete_global_application_command(&http, command.id)
+                        .await
+                        .expect("Failed to delete an unused command");
+                }
+            }
+
+            for command in self.commands_.iter().filter(|c| c.allow_slash) {
+                let already_created = if let Some(current_command) = current_commands
+                    .iter()
+                    .find(|curr| curr.name == command.names[0])
+                {
+                    if current_command.description == command.desc
+                        && current_command.options.len() == command.args.len()
+                    {
+                        let mut has_different_arg = false;
+
+                        for (arg, option) in
+                            command.args.iter().zip(current_command.options.clone())
+                        {
+                            if arg.required != option.required
+                                || arg.name != option.name
+                                || arg.description != option.description
+                                || arg.kind != option.kind
+                            {
+                                has_different_arg = true;
+                                break;
+                            }
+                        }
+
+                        !has_different_arg
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if !already_created {
+                    ApplicationCommand::create_global_application_command(&http, |a| {
+                        a.name(command.names[0]).description(command.desc);
+
+                        for arg in command.args {
+                            a.create_option(|o| {
+                                o.name(arg.name)
+                                    .description(arg.description)
+                                    .kind(arg.kind)
+                                    .required(arg.required)
+                            });
+                        }
+
+                        a
+                    })
+                    .await
+                    .expect(&format!(
+                        "Failed to create application command for {}",
+                        command.names[0]
+                    ));
+
+                    count += 1;
+                }
             }
         }
 

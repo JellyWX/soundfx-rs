@@ -10,7 +10,12 @@ use serenity::{
     async_trait,
     client::{Context, EventHandler},
     model::{
-        channel::Channel, guild::Guild, id::GuildId, interactions::Interaction, voice::VoiceState,
+        channel::Channel,
+        gateway::{Activity, Ready},
+        guild::Guild,
+        id::GuildId,
+        interactions::Interaction,
+        voice::VoiceState,
     },
     utils::shard_id,
 };
@@ -36,6 +41,10 @@ pub struct Handler;
 
 #[serenity::async_trait]
 impl EventHandler for Handler {
+    async fn ready(&self, ctx: Context, _: Ready) {
+        ctx.set_activity(Activity::watching("for /play")).await;
+    }
+
     async fn cache_ready(&self, ctx: Context, _: Vec<GuildId>) {
         let framework = ctx
             .data
