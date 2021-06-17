@@ -1219,6 +1219,12 @@ async fn change_public(
 
 #[command("delete")]
 #[description("Delete a sound you have uploaded")]
+#[arg(
+    name = "query",
+    description = "Delete sound with the specified name or ID",
+    kind = "String",
+    required = true
+)]
 async fn delete_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1235,9 +1241,12 @@ async fn delete_sound(
     let uid = invoke.author_id().0;
     let gid = invoke.guild_id().unwrap().0;
 
-    let name = args.named("query").unwrap();
+    let name = args
+        .named("query")
+        .map(|s| s.to_owned())
+        .unwrap_or(String::new());
 
-    let sound_vec = Sound::search_for_sound(name, gid, uid, pool.clone(), true).await?;
+    let sound_vec = Sound::search_for_sound(&name, gid, uid, pool.clone(), true).await?;
     let sound_result = sound_vec.first();
 
     match sound_result {
