@@ -128,6 +128,11 @@ pub trait CommandInvoke {
         http: Arc<Http>,
         generic_response: CreateGenericResponse,
     ) -> SerenityResult<()>;
+    async fn followup(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()>;
 }
 
 #[async_trait]
@@ -161,6 +166,25 @@ impl CommandInvoke for Message {
     }
 
     async fn respond(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()> {
+        self.channel_id
+            .send_message(http, |m| {
+                m.content(generic_response.content);
+
+                if let Some(embed) = generic_response.embed {
+                    m.set_embed(embed.clone());
+                }
+
+                m
+            })
+            .await
+            .map(|_| ())
+    }
+
+    async fn followup(
         &self,
         http: Arc<Http>,
         generic_response: CreateGenericResponse,
@@ -230,6 +254,24 @@ impl CommandInvoke for Interaction {
 
                     d
                 })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn followup(
+        &self,
+        http: Arc<Http>,
+        generic_response: CreateGenericResponse,
+    ) -> SerenityResult<()> {
+        self.create_followup_message(http, |d| {
+            d.content(generic_response.content);
+
+            if let Some(embed) = generic_response.embed {
+                d.set_embed(embed.clone());
+            }
+
+            d
         })
         .await
         .map(|_| ())

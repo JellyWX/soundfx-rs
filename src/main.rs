@@ -787,6 +787,12 @@ async fn change_volume(
 #[command("prefix")]
 #[required_permissions(Restricted)]
 #[allow_slash(false)]
+#[arg(
+    name = "prefix",
+    kind = "String",
+    description = "The new prefix to use for the bot",
+    required = true
+)]
 async fn change_prefix(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -853,7 +859,7 @@ async fn change_prefix(
 }
 
 #[command("upload")]
-#[allow_slash(false)]
+#[description("Upload a new sound to the bot")]
 #[arg(
     name = "name",
     description = "Name to upload sound to",
@@ -865,8 +871,6 @@ async fn upload_new_sound(
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let msg = invoke.msg().unwrap();
-
     fn is_numeric(s: &String) -> bool {
         for char in s.chars() {
             if char.is_digit(10) {
@@ -895,19 +899,20 @@ async fn upload_new_sound(
 
             // need to check the name is not currently in use by the user
             let count_name =
-                Sound::count_named_user_sounds(*msg.author.id.as_u64(), &new_name, pool.clone())
+                Sound::count_named_user_sounds(invoke.author_id().0, &new_name, pool.clone())
                     .await?;
             if count_name > 0 {
-                msg.channel_id.say(&ctx, "You are already using that name. Please choose a unique name for your upload.").await?;
+                invoke.respond(ctx.http.clone(), CreateGenericResponse::new().content("You are already using that name. Please choose a unique name for your upload.")).await?;
             } else {
                 // need to check how many sounds user currently has
-                let count = Sound::count_user_sounds(*msg.author.id.as_u64(), pool.clone()).await?;
+                let count = Sound::count_user_sounds(invoke.author_id().0, pool.clone()).await?;
                 let mut permit_upload = true;
 
                 // need to check if user is patreon or nah
                 if count >= *MAX_SOUNDS {
-                    let patreon_guild_member =
-                        GuildId(*PATREON_GUILD).member(ctx, msg.author.id).await;
+                    let patreon_guild_member = GuildId(*PATREON_GUILD)
+                        .member(ctx, invoke.author_id())
+                        .await;
 
                     if let Ok(member) = patreon_guild_member {
                         permit_upload = member.roles.contains(&RoleId(*PATREON_ROLE));
@@ -917,16 +922,20 @@ async fn upload_new_sound(
                 }
 
                 if permit_upload {
-                    let attachment = if let Some(attachment) = msg.attachments.get(0) {
-                        Some(attachment.url.clone())
+                    let attachment = if let Some(attachment) = invoke
+                        .msg()
+                        .map(|m| m.attachments.get(0).map(|a| a.url.clone()))
+                        .flatten()
+                    {
+                        Some(attachment)
                     } else {
-                        msg.channel_id.say(&ctx, "Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
+                        invoke.respond(ctx.http.clone(), CreateGenericResponse::new().content("Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):")).await?;
 
-                        let reply = msg
-                            .channel_id
+                        let reply = invoke
+                            .channel_id()
                             .await_reply(&ctx)
-                            .author_id(msg.author.id)
-                            .timeout(Duration::from_secs(30))
+                            .author_id(invoke.author_id())
+                            .timeout(Duration::from_secs(120))
                             .await;
 
                         match reply {
@@ -934,15 +943,19 @@ async fn upload_new_sound(
                                 if let Some(attachment) = reply_msg.attachments.get(0) {
                                     Some(attachment.url.clone())
                                 } else {
-                                    msg.channel_id.say(&ctx, "Please upload 1 attachment following your upload command. Aborted").await?;
+                                    invoke.followup(ctx.http.clone(), CreateGenericResponse::new().content("Please upload 1 attachment following your upload command. Aborted")).await?;
 
                                     None
                                 }
                             }
 
                             None => {
-                                msg.channel_id
-                                    .say(&ctx, "Upload timed out. Please redo the command")
+                                invoke
+                                    .followup(
+                                        ctx.http.clone(),
+                                        CreateGenericResponse::new()
+                                            .content("Upload timed out. Please redo the command"),
+                                    )
                                     .await?;
 
                                 None
@@ -954,41 +967,54 @@ async fn upload_new_sound(
                         match Sound::create_anon(
                             &new_name,
                             url.as_str(),
-                            *msg.guild_id.unwrap().as_u64(),
-                            *msg.author.id.as_u64(),
+                            invoke.guild_id().unwrap().0,
+                            invoke.author_id().0,
                             pool,
                         )
                         .await
                         {
                             Ok(_) => {
-                                msg.channel_id.say(&ctx, "Sound has been uploaded").await?;
+                                invoke
+                                    .followup(
+                                        ctx.http.clone(),
+                                        CreateGenericResponse::new()
+                                            .content("Sound has been uploaded"),
+                                    )
+                                    .await?;
                             }
 
                             Err(e) => {
                                 println!("Error occurred during upload: {:?}", e);
-                                msg.channel_id.say(&ctx, "Sound failed to upload.").await?;
+                                invoke
+                                    .followup(
+                                        ctx.http.clone(),
+                                        CreateGenericResponse::new()
+                                            .content("Sound failed to upload."),
+                                    )
+                                    .await?;
                             }
                         }
                     }
                 } else {
-                    msg.channel_id.say(
-                        &ctx,
-                        format!(
+                    invoke.respond(
+                        ctx.http.clone(),
+                        CreateGenericResponse::new().content(format!(
                             "You have reached the maximum number of sounds ({}). Either delete some with `?delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**",
                             *MAX_SOUNDS,
-                        )).await?;
+                        ))).await?;
                 }
             }
         } else {
-            msg.channel_id
-                .say(
-                    &ctx,
-                    "Please ensure the sound name contains a non-numerical character",
+            invoke
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new()
+                        .content("Please ensure the sound name contains a non-numerical character"),
                 )
                 .await?;
         }
     } else {
-        msg.channel_id.say(&ctx, "Usage: `?upload <name>`. Please ensure the name provided is less than 20 characters in length").await?;
+        invoke.respond(ctx.http.clone(), CreateGenericResponse::new().content("Usage: `?upload <name>`. Please ensure the name provided is less than 20 characters in length")).await?;
     }
 
     Ok(())
@@ -1153,6 +1179,12 @@ async fn list_sounds(
 
 #[command("public")]
 #[description("Change a sound between public and private")]
+#[arg(
+    name = "query",
+    kind = "String",
+    description = "Sound name or ID to change the privacy setting of",
+    required = true
+)]
 async fn change_public(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1333,6 +1365,12 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
 
 #[command("search")]
 #[description("Search for sounds")]
+#[arg(
+    name = "query",
+    kind = "String",
+    description = "Sound name to search for",
+    required = true
+)]
 async fn search_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1437,6 +1475,12 @@ SELECT name, id, plays, public, server_id, uploader_id
 
 #[command("greet")]
 #[description("Set a join sound")]
+#[arg(
+    name = "query",
+    kind = "String",
+    description = "Name or ID of sound to set as your greet sound",
+    required = false
+)]
 async fn set_greet_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -1450,7 +1494,10 @@ async fn set_greet_sound(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let query = args.named("query").unwrap();
+    let query = args
+        .named("query")
+        .map(|s| s.to_owned())
+        .unwrap_or(String::new());
     let user_id = invoke.author_id();
 
     if query.len() == 0 {
@@ -1464,7 +1511,7 @@ async fn set_greet_sound(
             .await?;
     } else {
         let sound_vec = Sound::search_for_sound(
-            query,
+            &query,
             invoke.guild_id().unwrap(),
             user_id,
             pool.clone(),
