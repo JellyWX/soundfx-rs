@@ -19,12 +19,14 @@ use log::info;
 use regex_command_attr::command;
 
 use serenity::{
+    builder::CreateActionRow,
     client::{bridge::gateway::GatewayIntents, Client, Context},
     framework::standard::CommandResult,
     http::Http,
     model::{
         guild::Guild,
         id::{ChannelId, GuildId, RoleId, UserId},
+        interactions::ButtonStyle,
     },
     prelude::*,
 };
@@ -46,6 +48,7 @@ use dashmap::DashMap;
 
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 
+use serenity::model::prelude::InteractionResponseType;
 use tokio::sync::{MutexGuard, RwLock};
 
 struct MySQL;
@@ -193,6 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_command(&PLAY_COMMAND)
         .add_command(&STOP_PLAYING_COMMAND)
         .add_command(&DISCONNECT_COMMAND)
+        .add_command(&SOUNDBOARD_COMMAND)
         // sound management commands
         .add_command(&UPLOAD_NEW_SOUND_COMMAND)
         .add_command(&DELETE_SOUND_COMMAND)
@@ -298,8 +302,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 #[command]
 #[description("Get information on the commands of the bot")]
 #[arg(
-    name = "category",
-    description = "Get help for a specific category",
+    name = "command",
+    description = "Get help for a specific command",
     kind = "String",
     required = false
 )]
@@ -308,123 +312,80 @@ async fn help(
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    if let Some(category) = args.named("category") {
-        let body = match category.to_lowercase().as_str() {
-            "info" => {
-                "__Info Commands__
-`help` - view all commands
-`help [category]` - view help for the commands in a category
+    if let Some(command_name) = args.named("command") {
+        let framework = ctx
+            .data
+            .read()
+            .await
+            .get::<RegexFramework>()
+            .cloned()
+            .unwrap();
 
-`info` - view information about the bot
+        if let Some(command) = framework.commands.get(command_name) {
+            invoke
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new().embed(|e| {
+                        e.title(format!("{} Help", command_name))
+                            .color(THEME_COLOR)
+                            .description(format!(
+                                "**Aliases**
+{}
 
-`invite` - get an invite link for the bot
+**Overview**
+ • {}
 
-`donate` - view information about the Patreon
-                "
-            }
-            "play" => {
-                "__Play Commands__
-`play [sound]` - play a sound matching the name \"sound\"
-`play [id]` - play the sound with numerical ID `id`
+**Arguments**
+{}
 
-`p` - an alias for `play`
-
-`stop` - stop the bot from playing
-`dc` - disconnect the bot from the current channel
-
-`loop [sound]` - play a sound matching the name \"sound\" on loop
-`loop [id]` - play a sound matching the numerical ID `id` on loop
-                "
-            }
-            "manage" => {
-                "__Manage Commands__
-`upload [name]` - upload a new sound effect to the name \"name\"
-
-`delete [name]` - delete a sound you have uploaded under the name \"name\"
-
-`list` - list sounds uploaded on the server you are on
-`list me` - list sounds you have uploaded to any server
-
-`public [name]` - make a sound you have uploaded public or private
-                "
-            }
-            "settings" => {
-                "__Settings Commands__
-`prefix [new prefix]` - change the prefix of the bot
-
-`roles [role list]` - set which roles can use the bot
-`roles off` - allow all users to use the bot
-
-`volume [new volume]` - change the volume of the bot
-
-`allow_greet` - toggle whether users in your server can use greet sounds
-                "
-            }
-            "search" => {
-                "__Search Commands__
-`search [term]` - search for sounds matching \"term\"
-
-`random` - find some random sounds on the bot
-
-`popular` - find the most played sounds on the bot
-                "
-            }
-            "other" => {
-                "__Other Commands__
-`greet [name]` - set your greet sound (join sound) to the sound called \"name\"
-`greet [id]` - set your greet sound (join sound) to the sound with numerical ID `id`
-
-`ambience` - view a list of ambience sounds
-`ambience [name]` - set an ambience sound playing
-                "
-            }
-            _ => {
-                "__Unrecognised Category__
-Please select a category from the following:
-
-`info`
-`play`
-`manage`
-`settings`
-`search`
-`other`
-                "
-            }
-        };
-
+**Examples**
+{}",
+                                command
+                                    .names
+                                    .iter()
+                                    .map(|n| format!("`{}`", n))
+                                    .collect::<Vec<String>>()
+                                    .join(" "),
+                                command.desc,
+                                command
+                                    .args
+                                    .iter()
+                                    .map(|a| format!(
+                                        " • `{}` {} - {}",
+                                        a.name,
+                                        if a.required { "" } else { "[optional]" },
+                                        a.description
+                                    ))
+                                    .collect::<Vec<String>>()
+                                    .join("\n"),
+                                command
+                                    .examples
+                                    .iter()
+                                    .map(|e| format!(" • {}", e))
+                                    .collect::<Vec<String>>()
+                                    .join("\n")
+                            ))
+                    }),
+                )
+                .await?;
+        } else {
+            invoke
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new().embed(|e| {
+                        e.title("Invalid Command")
+                            .color(THEME_COLOR)
+                            .description("")
+                    }),
+                )
+                .await?;
+        }
+    } else {
         invoke
             .respond(
                 ctx.http.clone(),
                 CreateGenericResponse::new()
-                    .embed(|e| e.title("Help").color(THEME_COLOR).description(body)),
-            )
-            .await?;
-    } else {
-        let description = {
-            let guild_data = ctx.guild_data(invoke.guild_id().unwrap()).await.unwrap();
-
-            let read_lock = guild_data.read().await;
-
-            format!(
-                "Type `{}help category` to view help for a command category below:",
-                read_lock.prefix
-            )
-        };
-
-        invoke
-            .respond(
-                ctx.http.clone(),
-                CreateGenericResponse::new().embed(|e| {
-                    e.title("Help")
-                        .color(THEME_COLOR)
-                        .description(description)
-                        .field("Info", "`help` `info` `invite` `donate`", false)
-                        .field("Play", "`play` `p` `stop` `dc` `loop`", false)
-                        .field("Manage", "`upload` `delete` `list` `public`", false)
-                        .field("Settings", "`prefix` `roles` `volume` `allow_greet`", false)
-                        .field("Search", "`search` `random` `popular`", false)
-                        .field("Other", "`greet` `ambience`", false)
-                }),
+                    .embed(|e| e.title("Help").color(THEME_COLOR).description("")),
             )
             .await?;
     }
@@ -498,8 +459,6 @@ async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop
     match channel_to_join {
         Some(user_channel) => {
             let search_term = args.named("query").unwrap();
-
-            println!("{}", search_term);
 
             let pool = ctx
                 .data
@@ -1173,6 +1132,53 @@ async fn list_sounds(
             )
             .await?;
     }
+
+    Ok(())
+}
+
+#[command("soundboard")]
+#[aliases("board")]
+#[description("Get a menu of sounds in this server with buttons to play them")]
+async fn soundboard(
+    ctx: &Context,
+    invoke: &(dyn CommandInvoke + Sync + Send),
+    _args: Args,
+) -> CommandResult {
+    let pool = ctx
+        .data
+        .read()
+        .await
+        .get::<MySQL>()
+        .cloned()
+        .expect("Could not get SQLPool from data");
+
+    let sounds = Sound::get_guild_sounds(invoke.guild_id().unwrap(), pool).await?;
+
+    if let Some(interaction) = invoke.interaction() {
+        interaction
+            .create_interaction_response(&ctx, |r| r.kind(InteractionResponseType::Pong))
+            .await?;
+    }
+
+    invoke
+        .channel_id()
+        .send_message(&ctx, |m| {
+            m.components(|c| {
+                for row in sounds.as_slice().chunks(5) {
+                    let mut action_row: CreateActionRow = Default::default();
+                    for sound in row {
+                        action_row.create_button(|b| {
+                            b.style(ButtonStyle::Primary)
+                                .label(&sound.name)
+                                .custom_id(sound.id)
+                        });
+                    }
+                }
+
+                c
+            })
+        })
+        .await?;
 
     Ok(())
 }

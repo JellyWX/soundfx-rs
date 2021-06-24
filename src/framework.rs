@@ -10,7 +10,7 @@ use serenity::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
         id::{ChannelId, GuildId, UserId},
-        interactions::{ApplicationCommand, Interaction, InteractionType},
+        interactions::{ApplicationCommand, Interaction, InteractionData, InteractionType},
         prelude::{ApplicationCommandOptionType, InteractionResponseType},
     },
     prelude::TypeMapKey,
@@ -249,7 +249,7 @@ impl CommandInvoke for Interaction {
                     d.content(generic_response.content);
 
                     if let Some(embed) = generic_response.embed {
-                        d.set_embed(embed.clone());
+                        d.add_embed(embed.clone());
                     }
 
                     d
@@ -268,7 +268,7 @@ impl CommandInvoke for Interaction {
             d.content(generic_response.content);
 
             if let Some(embed) = generic_response.embed {
-                d.set_embed(embed.clone());
+                d.add_embed(embed.clone());
             }
 
             d
@@ -408,7 +408,7 @@ impl fmt::Debug for Command {
 }
 
 pub struct RegexFramework {
-    commands: HashMap<String, &'static Command>,
+    pub commands: HashMap<String, &'static Command>,
     commands_: HashSet<&'static Command>,
     command_matcher: Regex,
     default_prefix: String,
@@ -615,7 +615,7 @@ impl RegexFramework {
     pub async fn execute(&self, ctx: Context, interaction: Interaction) {
         if interaction.kind == InteractionType::ApplicationCommand && interaction.guild_id.is_some()
         {
-            if let Some(data) = interaction.data.clone() {
+            if let Some(InteractionData::ApplicationCommand(data)) = interaction.data.clone() {
                 let command = {
                     let name = data.name;
 
