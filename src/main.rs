@@ -48,6 +48,7 @@ use dashmap::DashMap;
 
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 
+use serenity::model::prelude::InteractionResponseType;
 use tokio::sync::{MutexGuard, RwLock};
 
 struct MySQL;
@@ -1137,12 +1138,170 @@ async fn list_sounds(
 
 #[command("soundboard")]
 #[aliases("board")]
-#[description("Get a menu of sounds in this server with buttons to play them")]
+#[description("Get a menu of sounds with buttons to play them")]
+#[arg(
+    name = "1",
+    description = "Query for sound button 1",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "2",
+    description = "Query for sound button 2",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "3",
+    description = "Query for sound button 3",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "4",
+    description = "Query for sound button 4",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "5",
+    description = "Query for sound button 5",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "6",
+    description = "Query for sound button 6",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "7",
+    description = "Query for sound button 7",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "8",
+    description = "Query for sound button 8",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "9",
+    description = "Query for sound button 9",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "10",
+    description = "Query for sound button 10",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "11",
+    description = "Query for sound button 11",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "12",
+    description = "Query for sound button 12",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "13",
+    description = "Query for sound button 13",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "14",
+    description = "Query for sound button 14",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "15",
+    description = "Query for sound button 15",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "16",
+    description = "Query for sound button 16",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "17",
+    description = "Query for sound button 17",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "18",
+    description = "Query for sound button 18",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "19",
+    description = "Query for sound button 19",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "20",
+    description = "Query for sound button 20",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "21",
+    description = "Query for sound button 21",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "22",
+    description = "Query for sound button 22",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "23",
+    description = "Query for sound button 23",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "24",
+    description = "Query for sound button 24",
+    kind = "String",
+    required = false
+)]
+#[arg(
+    name = "25",
+    description = "Query for sound button 25",
+    kind = "String",
+    required = false
+)]
 async fn soundboard(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
-    _args: Args,
+    args: Args,
 ) -> CommandResult {
+    if let Some(interaction) = invoke.interaction() {
+        let _ = interaction
+            .create_interaction_response(&ctx, |r| {
+                r.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+            })
+            .await;
+    }
+
     let pool = ctx
         .data
         .read()
@@ -1151,13 +1310,28 @@ async fn soundboard(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    let sounds = Sound::get_guild_sounds(invoke.guild_id().unwrap(), pool).await?;
+    let mut sounds = vec![];
+
+    for n in 1..25 {
+        let search = Sound::search_for_sound(
+            args.named(&n.to_string()).unwrap_or(&"".to_string()),
+            invoke.guild_id().unwrap(),
+            invoke.author_id(),
+            pool.clone(),
+            true,
+        )
+        .await?;
+
+        if let Some(sound) = search.first() {
+            sounds.push(sound.clone());
+        }
+    }
 
     invoke
-        .respond(
+        .followup(
             ctx.http.clone(),
             CreateGenericResponse::new()
-                .content("Select a sound from below:")
+                .content("**Play a sound:**")
                 .components(|c| {
                     for row in sounds.as_slice().chunks(5) {
                         let mut action_row: CreateActionRow = Default::default();

@@ -290,7 +290,7 @@ impl Default for Arg {
 pub(crate) struct Options {
     pub aliases: Vec<String>,
     pub description: String,
-    pub usage: AsOption<String>,
+    pub group: AsOption<String>,
     pub examples: Vec<String>,
     pub required_permissions: PermissionLevel,
     pub allow_slash: bool,

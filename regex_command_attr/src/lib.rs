@@ -68,7 +68,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
             _ => {
                 match_options!(name, values, options, span => [
                     aliases;
-                    usage;
+                    group;
                     required_permissions;
                     allow_slash
                 ]);
@@ -79,7 +79,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
     let Options {
         aliases,
         description,
-        usage,
+        group,
         examples,
         required_permissions,
         allow_slash,
@@ -108,7 +108,10 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
 
     let arg_idents = cmd_args
         .iter()
-        .map(|arg| n.with_suffix(arg.name.as_str()).with_suffix(ARG))
+        .map(|arg| {
+            n.with_suffix(arg.name.replace(" ", "_").replace("-", "_").as_str())
+                .with_suffix(ARG)
+        })
         .collect::<Vec<Ident>>();
 
     let mut tokens = cmd_args
@@ -146,7 +149,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
             fun: #name,
             names: &[#_name, #(#aliases),*],
             desc: #description,
-            usage: #usage,
+            group: #group,
             examples: &[#(#examples),*],
             required_permissions: #required_permissions,
             allow_slash: #allow_slash,

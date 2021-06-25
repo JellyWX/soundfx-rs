@@ -108,11 +108,9 @@ impl CreateGenericResponse {
 
     pub fn embed<F: FnOnce(&mut CreateEmbed) -> &mut CreateEmbed>(mut self, f: F) -> Self {
         let mut embed = CreateEmbed::default();
-
         f(&mut embed);
 
         self.embed = Some(embed);
-
         self
     }
 
@@ -121,11 +119,9 @@ impl CreateGenericResponse {
         f: F,
     ) -> Self {
         let mut components = CreateComponents::default();
-
         f(&mut components);
 
         self.components = Some(components);
-
         self
     }
 }
@@ -344,12 +340,15 @@ impl Arg {
 
 pub struct Command {
     pub fun: CommandFn,
+
     pub names: &'static [&'static str],
+
     pub desc: &'static str,
-    pub usage: Option<&'static str>,
     pub examples: &'static [&'static str],
-    pub required_permissions: PermissionLevel,
+    pub group: Option<&'static str>,
+
     pub allow_slash: bool,
+    pub required_permissions: PermissionLevel,
     pub args: &'static [&'static Arg],
 }
 

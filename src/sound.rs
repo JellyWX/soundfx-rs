@@ -111,6 +111,7 @@ WHERE
     }
 }
 
+#[derive(Clone)]
 pub struct Sound {
     pub name: String,
     pub id: u32,
