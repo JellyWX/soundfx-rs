@@ -1,7 +1,7 @@
 use crate::{
     framework::RegexFramework,
     guild_data::CtxGuildData,
-    join_channel, play_audio,
+    join_channel, play_audio, play_cmd,
     sound::{JoinSoundCtx, Sound},
     MySQL, ReqwestClient,
 };
@@ -22,6 +22,9 @@ use serenity::{
 
 use songbird::{Event, EventContext, EventHandler as SongbirdEventHandler};
 
+use crate::framework::{Args, CommandInvoke};
+use serenity::model::interactions::{InteractionData, InteractionType};
+use serenity::model::prelude::InteractionResponseType;
 use std::{collections::HashMap, env};
 
 pub struct RestartTrack;
@@ -180,14 +183,49 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        let framework = ctx
-            .data
-            .read()
-            .await
-            .get::<RegexFramework>()
-            .cloned()
-            .expect("RegexFramework not found in context");
+        if interaction.guild_id.is_none() {
+            return;
+        }
 
-        framework.execute(ctx, interaction).await;
+        match interaction.kind {
+            InteractionType::ApplicationCommand => {
+                let framework = ctx
+                    .data
+                    .read()
+                    .await
+                    .get::<RegexFramework>()
+                    .cloned()
+                    .expect("RegexFramework not found in context");
+
+                framework.execute(ctx, interaction).await;
+            }
+            InteractionType::MessageComponent => {
+                if let (Some(InteractionData::MessageComponent(data)), Some(member)) =
+                    (interaction.clone().data, interaction.clone().member)
+                {
+                    let mut args = Args {
+                        args: Default::default(),
+                    };
+                    args.args.insert("query".to_string(), data.custom_id);
+
+                    play_cmd(
+                        &ctx,
+                        interaction.guild(ctx.cache.clone()).await.unwrap(),
+                        member.user.id,
+                        args,
+                        false,
+                    )
+                    .await;
+
+                    interaction
+                        .create_interaction_response(ctx, |r| {
+                            r.kind(InteractionResponseType::DeferredUpdateMessage)
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
+            _ => {}
+        }
     }
 }

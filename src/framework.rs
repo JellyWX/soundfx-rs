@@ -10,14 +10,14 @@ use serenity::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
         id::{ChannelId, GuildId, UserId},
-        interactions::{ApplicationCommand, Interaction, InteractionData, InteractionType},
+        interactions::{ApplicationCommand, Interaction, InteractionData},
         prelude::{ApplicationCommandOptionType, InteractionResponseType},
     },
     prelude::TypeMapKey,
     Result as SerenityResult,
 };
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use regex::{Match, Regex, RegexBuilder};
 
@@ -30,6 +30,7 @@ use std::{
 
 use crate::{guild_data::CtxGuildData, MySQL};
 use serde_json::Value;
+use serenity::builder::CreateComponents;
 
 type CommandFn = for<'fut> fn(
     &'fut Context,
@@ -38,7 +39,7 @@ type CommandFn = for<'fut> fn(
 ) -> BoxFuture<'fut, CommandResult>;
 
 pub struct Args {
-    args: HashMap<String, String>,
+    pub args: HashMap<String, String>,
 }
 
 impl Args {
@@ -87,6 +88,7 @@ impl Args {
 pub struct CreateGenericResponse {
     content: String,
     embed: Option<CreateEmbed>,
+    components: Option<CreateComponents>,
 }
 
 impl CreateGenericResponse {
@@ -94,6 +96,7 @@ impl CreateGenericResponse {
         Self {
             content: "".to_string(),
             embed: None,
+            components: None,
         }
     }
 
@@ -109,6 +112,19 @@ impl CreateGenericResponse {
         f(&mut embed);
 
         self.embed = Some(embed);
+
+        self
+    }
+
+    pub fn components<F: FnOnce(&mut CreateComponents) -> &mut CreateComponents>(
+        mut self,
+        f: F,
+    ) -> Self {
+        let mut components = CreateComponents::default();
+
+        f(&mut components);
+
+        self.components = Some(components);
 
         self
     }
@@ -178,6 +194,10 @@ impl CommandInvoke for Message {
                     m.set_embed(embed.clone());
                 }
 
+                if let Some(components) = generic_response.components {
+                    m.set_components(components.clone());
+                }
+
                 m
             })
             .await
@@ -195,6 +215,10 @@ impl CommandInvoke for Message {
 
                 if let Some(embed) = generic_response.embed {
                     m.set_embed(embed.clone());
+                }
+
+                if let Some(components) = generic_response.components {
+                    m.set_components(components.clone());
                 }
 
                 m
@@ -252,6 +276,10 @@ impl CommandInvoke for Interaction {
                         d.add_embed(embed.clone());
                     }
 
+                    if let Some(components) = generic_response.components {
+                        d.set_components(components.clone());
+                    }
+
                     d
                 })
         })
@@ -269,6 +297,10 @@ impl CommandInvoke for Interaction {
 
             if let Some(embed) = generic_response.embed {
                 d.add_embed(embed.clone());
+            }
+
+            if let Some(components) = generic_response.components {
+                d.set_components(components.clone());
             }
 
             d
@@ -453,8 +485,6 @@ impl RegexFramework {
     }
 
     pub fn add_command(mut self, command: &'static Command) -> Self {
-        info!("{:?}", command);
-
         self.commands_.insert(command);
 
         for name in command.names {
@@ -475,7 +505,7 @@ impl RegexFramework {
             command_names = command_names_vec.join("|");
         }
 
-        info!("Command names: {}", command_names);
+        debug!("Command names: {}", command_names);
 
         {
             let match_string = r#"^(?:(?:<@ID>\s*)|(?:<@!ID>\s*)|(?P<prefix>\S{1,5}?))(?P<cmd>COMMANDS)(?:$|\s+(?P<args>.*))$"#
@@ -534,7 +564,7 @@ impl RegexFramework {
                 .await
                 .expect("Failed to fetch existing commands");
 
-            info!("Existing commands: {:?}", current_commands);
+            debug!("Existing commands: {:?}", current_commands);
 
             // delete commands not in use
             for command in &current_commands {
@@ -613,64 +643,61 @@ impl RegexFramework {
     }
 
     pub async fn execute(&self, ctx: Context, interaction: Interaction) {
-        if interaction.kind == InteractionType::ApplicationCommand && interaction.guild_id.is_some()
-        {
-            if let Some(InteractionData::ApplicationCommand(data)) = interaction.data.clone() {
-                let command = {
-                    let name = data.name;
+        if let Some(InteractionData::ApplicationCommand(data)) = interaction.data.clone() {
+            let command = {
+                let name = data.name;
 
-                    self.commands
-                        .get(&name)
-                        .expect(&format!("Received invalid command: {}", name))
-                };
+                self.commands
+                    .get(&name)
+                    .expect(&format!("Received invalid command: {}", name))
+            };
 
-                if command
-                    .check_permissions(
-                        &ctx,
-                        &interaction.guild(ctx.cache.clone()).await.unwrap(),
-                        &interaction.member(&ctx).await.unwrap(),
-                    )
-                    .await
-                {
-                    let mut args = HashMap::new();
+            if command
+                .check_permissions(
+                    &ctx,
+                    &interaction.guild(ctx.cache.clone()).await.unwrap(),
+                    &interaction.member(&ctx).await.unwrap(),
+                )
+                .await
+            {
+                let mut args = HashMap::new();
 
-                    for arg in data.options.iter().filter(|o| o.value.is_some()) {
-                        args.insert(
-                            arg.name.clone(),
-                            match arg.value.clone().unwrap() {
-                                Value::Bool(b) => {
-                                    if b {
-                                        arg.name.clone()
-                                    } else {
-                                        String::new()
-                                    }
+                for arg in data.options.iter().filter(|o| o.value.is_some()) {
+                    args.insert(
+                        arg.name.clone(),
+                        match arg.value.clone().unwrap() {
+                            Value::Bool(b) => {
+                                if b {
+                                    arg.name.clone()
+                                } else {
+                                    String::new()
                                 }
-                                Value::Number(n) => n.to_string(),
-                                Value::String(s) => s,
-                                _ => String::new(),
-                            },
-                        );
-                    }
-
-                    (command.fun)(&ctx, &interaction, Args { args })
-                        .await
-                        .unwrap();
-                } else if command.required_permissions == PermissionLevel::Managed {
-                    let _ = interaction
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
-                        )
-                        .await;
-                } else if command.required_permissions == PermissionLevel::Restricted {
-                    let _ = interaction
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new()
-                                .content("You must be an Admin to do this command"),
-                        )
-                        .await;
+                            }
+                            Value::Number(n) => n.to_string(),
+                            Value::String(s) => s,
+                            _ => String::new(),
+                        },
+                    );
                 }
+
+                (command.fun)(&ctx, &interaction, Args { args })
+                    .await
+                    .unwrap();
+            } else if command.required_permissions == PermissionLevel::Managed {
+                let _ = interaction
+                    .respond(
+                        ctx.http.clone(),
+                        CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
+                    )
+                    .await;
+            } else if command.required_permissions == PermissionLevel::Restricted {
+                let _ = interaction
+                    .respond(
+                        ctx.http.clone(),
+                        CreateGenericResponse::new()
+                            .content("You must be an Admin to do this command"),
+                    )
+                    .await;
             }
         }
     }

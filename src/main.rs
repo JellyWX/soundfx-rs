@@ -48,7 +48,6 @@ use dashmap::DashMap;
 
 use std::{collections::HashMap, convert::TryFrom, env, sync::Arc, time::Duration};
 
-use serenity::model::prelude::InteractionResponseType;
 use tokio::sync::{MutexGuard, RwLock};
 
 struct MySQL;
@@ -1154,30 +1153,28 @@ async fn soundboard(
 
     let sounds = Sound::get_guild_sounds(invoke.guild_id().unwrap(), pool).await?;
 
-    if let Some(interaction) = invoke.interaction() {
-        interaction
-            .create_interaction_response(&ctx, |r| r.kind(InteractionResponseType::Pong))
-            .await?;
-    }
-
     invoke
-        .channel_id()
-        .send_message(&ctx, |m| {
-            m.components(|c| {
-                for row in sounds.as_slice().chunks(5) {
-                    let mut action_row: CreateActionRow = Default::default();
-                    for sound in row {
-                        action_row.create_button(|b| {
-                            b.style(ButtonStyle::Primary)
-                                .label(&sound.name)
-                                .custom_id(sound.id)
-                        });
-                    }
-                }
+        .respond(
+            ctx.http.clone(),
+            CreateGenericResponse::new()
+                .content("Select a sound from below:")
+                .components(|c| {
+                    for row in sounds.as_slice().chunks(5) {
+                        let mut action_row: CreateActionRow = Default::default();
+                        for sound in row {
+                            action_row.create_button(|b| {
+                                b.style(ButtonStyle::Primary)
+                                    .label(&sound.name)
+                                    .custom_id(sound.id)
+                            });
+                        }
 
-                c
-            })
-        })
+                        c.add_action_row(action_row);
+                    }
+
+                    c
+                }),
+        )
         .await?;
 
     Ok(())
