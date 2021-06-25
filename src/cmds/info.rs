@@ -7,6 +7,7 @@ use crate::{
     THEME_COLOR,
 };
 
+use crate::framework::CommandKind;
 use std::{collections::HashMap, sync::Arc};
 
 #[command]
@@ -62,6 +63,28 @@ pub async fn help(
                 )
             };
 
+            let args = if command.args.is_empty() {
+                "**Arguments**
+ • *This command has no arguments*"
+                    .to_string()
+            } else {
+                format!(
+                    "**Arguments**
+{}",
+                    command
+                        .args
+                        .iter()
+                        .map(|a| format!(
+                            " • `{}` {} - {}",
+                            a.name,
+                            if a.required { "" } else { "[optional]" },
+                            a.description
+                        ))
+                        .collect::<Vec<String>>()
+                        .join("\n")
+                )
+            };
+
             invoke
                 .respond(
                     ctx.http.clone(),
@@ -69,15 +92,28 @@ pub async fn help(
                         e.title(format!("{} Help", command_name))
                             .color(THEME_COLOR)
                             .description(format!(
-                                "**Aliases**
+                                "**Available In**
+`Slash Commands` {}
+` Text Commands` {}
+
+**Aliases**
 {}
 
 **Overview**
  • {}
-**Arguments**
 {}
 
 {}",
+                                if command.kind != CommandKind::Text {
+                                    "✅"
+                                } else {
+                                    "❎"
+                                },
+                                if command.kind != CommandKind::Slash {
+                                    "✅"
+                                } else {
+                                    "❎"
+                                },
                                 command
                                     .names
                                     .iter()
@@ -85,17 +121,7 @@ pub async fn help(
                                     .collect::<Vec<String>>()
                                     .join(" "),
                                 command.desc,
-                                command
-                                    .args
-                                    .iter()
-                                    .map(|a| format!(
-                                        " • `{}` {} - {}",
-                                        a.name,
-                                        if a.required { "" } else { "[optional]" },
-                                        a.description
-                                    ))
-                                    .collect::<Vec<String>>()
-                                    .join("\n"),
+                                args,
                                 examples
                             ))
                     }),

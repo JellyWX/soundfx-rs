@@ -215,6 +215,55 @@ impl ToTokens for PermissionLevel {
 }
 
 #[derive(Debug)]
+pub enum CommandKind {
+    Slash,
+    Both,
+    Text,
+}
+
+impl Default for CommandKind {
+    fn default() -> Self {
+        Self::Both
+    }
+}
+
+impl CommandKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        Some(match s.to_uppercase().as_str() {
+            "SLASH" => Self::Slash,
+            "BOTH" => Self::Both,
+            "TEXT" => Self::Text,
+            _ => return None,
+        })
+    }
+}
+
+impl ToTokens for CommandKind {
+    fn to_tokens(&self, stream: &mut TokenStream2) {
+        let path = quote!(crate::framework::CommandKind);
+        let variant;
+
+        match self {
+            Self::Slash => {
+                variant = quote!(Slash);
+            }
+
+            Self::Both => {
+                variant = quote!(Both);
+            }
+
+            Self::Text => {
+                variant = quote!(Text);
+            }
+        }
+
+        stream.extend(quote! {
+            #path::#variant
+        });
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum ApplicationCommandOptionType {
     SubCommand,
     SubCommandGroup,
@@ -293,7 +342,7 @@ pub(crate) struct Options {
     pub group: String,
     pub examples: Vec<String>,
     pub required_permissions: PermissionLevel,
-    pub allow_slash: bool,
+    pub kind: CommandKind,
     pub cmd_args: Vec<Arg>,
 }
 
@@ -301,7 +350,6 @@ impl Options {
     #[inline]
     pub fn new() -> Self {
         Self {
-            allow_slash: true,
             group: "Other".to_string(),
             ..Default::default()
         }

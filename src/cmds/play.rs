@@ -184,14 +184,14 @@ __Available ambience sounds:__
 }
 
 #[command("soundboard")]
-#[aliases("board")]
 #[group("Play")]
+#[kind(Slash)]
 #[description("Get a menu of sounds with buttons to play them")]
 #[arg(
     name = "1",
     description = "Query for sound button 1",
     kind = "String",
-    required = false
+    required = true
 )]
 #[arg(
     name = "2",

@@ -70,7 +70,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
                     aliases;
                     group;
                     required_permissions;
-                    allow_slash
+                    kind
                 ]);
             }
         }
@@ -82,7 +82,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
         group,
         examples,
         required_permissions,
-        allow_slash,
+        kind,
         mut cmd_args,
     } = options;
 
@@ -152,7 +152,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
             group: #group,
             examples: &[#(#examples),*],
             required_permissions: #required_permissions,
-            allow_slash: #allow_slash,
+            kind: #kind,
             args: &[#(&#arg_idents),*],
         };
 

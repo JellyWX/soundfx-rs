@@ -309,6 +309,13 @@ pub enum PermissionLevel {
     Restricted,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum CommandKind {
+    Slash,
+    Both,
+    Text,
+}
+
 #[derive(Debug)]
 pub struct Arg {
     pub name: &'static str,
@@ -320,7 +327,7 @@ pub struct Arg {
 impl Arg {
     pub fn to_regex(&self) -> String {
         match self.kind {
-            ApplicationCommandOptionType::String => format!(r#"(?P<{}>.*?)"#, self.name),
+            ApplicationCommandOptionType::String => format!(r#"(?P<{}>.+?)"#, self.name),
             ApplicationCommandOptionType::Integer => format!(r#"(?P<{}>\d+)"#, self.name),
             ApplicationCommandOptionType::Boolean => format!(r#"(?P<{0}>{0})?"#, self.name),
             ApplicationCommandOptionType::User => format!(r#"<(@|@!)(?P<{}>\d+)>"#, self.name),
@@ -343,7 +350,7 @@ pub struct Command {
     pub examples: &'static [&'static str],
     pub group: &'static str,
 
-    pub allow_slash: bool,
+    pub kind: CommandKind,
     pub required_permissions: PermissionLevel,
     pub args: &'static [&'static Arg],
 }
@@ -528,7 +535,11 @@ impl RegexFramework {
             .flatten()
             .map(|v| GuildId(v))
         {
-            for command in self.commands_.iter().filter(|c| c.allow_slash) {
+            for command in self
+                .commands_
+                .iter()
+                .filter(|c| c.kind != CommandKind::Text)
+            {
                 guild_id
                     .create_application_command(&http, |a| {
                         a.name(command.names[0]).description(command.desc);
@@ -577,7 +588,11 @@ impl RegexFramework {
                 }
             }
 
-            for command in self.commands_.iter().filter(|c| c.allow_slash) {
+            for command in self
+                .commands_
+                .iter()
+                .filter(|c| c.kind != CommandKind::Text)
+            {
                 let already_created = if let Some(current_command) = current_commands
                     .iter()
                     .find(|curr| curr.name == command.names[0])
@@ -752,27 +767,31 @@ impl Framework for RegexFramework {
                                     .get(&full_match.name("cmd").unwrap().as_str().to_lowercase())
                                     .unwrap();
 
-                                let args = full_match
-                                    .name("args")
-                                    .map(|m| m.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
+                                if command.kind != CommandKind::Slash {
+                                    let args = full_match
+                                        .name("args")
+                                        .map(|m| m.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
 
-                                let member = guild.member(&ctx, &msg.author).await.unwrap();
+                                    let member = guild.member(&ctx, &msg.author).await.unwrap();
 
-                                if command.check_permissions(&ctx, &guild, &member).await {
-                                    (command.fun)(&ctx, &msg, Args::from(&args, command.args))
-                                        .await
-                                        .unwrap();
-                                } else if command.required_permissions == PermissionLevel::Managed {
-                                    let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
-                                } else if command.required_permissions
-                                    == PermissionLevel::Restricted
-                                {
-                                    let _ = msg
-                                        .channel_id
-                                        .say(&ctx, "You must be an Admin to do this command")
-                                        .await;
+                                    if command.check_permissions(&ctx, &guild, &member).await {
+                                        (command.fun)(&ctx, &msg, Args::from(&args, command.args))
+                                            .await
+                                            .unwrap();
+                                    } else if command.required_permissions
+                                        == PermissionLevel::Managed
+                                    {
+                                        let _ = msg.channel_id.say(&ctx, "You must either be an Admin or have a role specified in `?roles` to do this command").await;
+                                    } else if command.required_permissions
+                                        == PermissionLevel::Restricted
+                                    {
+                                        let _ = msg
+                                            .channel_id
+                                            .say(&ctx, "You must be an Admin to do this command")
+                                            .await;
+                                    }
                                 }
                             }
 

@@ -40,6 +40,8 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
     kind = "Boolean",
     required = false
 )]
+#[example("`/list` - list sounds uploaded to the server you're in")]
+#[example("`/list [me: True]` - list sounds you have uploaded across all servers")]
 pub async fn list_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),

@@ -20,6 +20,9 @@ use crate::{
     kind = "Integer",
     required = false
 )]
+#[example("`/volume` - check the volume on the current server")]
+#[example("`/volume 100` - reset the volume on the current server")]
+#[example("`/volume 10` - set the volume on the current server to 10%")]
 pub async fn change_volume(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -66,7 +69,7 @@ pub async fn change_volume(
 
 #[command("prefix")]
 #[required_permissions(Restricted)]
-#[allow_slash(false)]
+#[kind(Text)]
 #[group("Settings")]
 #[description("Change the prefix of the bot for using non-slash commands")]
 #[arg(
@@ -97,7 +100,7 @@ pub async fn change_prefix(
     }
 
     if let Some(prefix) = args.named("prefix") {
-        if prefix.len() <= 5 {
+        if prefix.len() <= 5 && !prefix.is_empty() {
             let reply = format!("Prefix changed to `{}`", prefix);
 
             {
@@ -142,7 +145,7 @@ pub async fn change_prefix(
 
 #[command("roles")]
 #[required_permissions(Restricted)]
-#[allow_slash(false)]
+#[kind(Text)]
 #[group("Settings")]
 #[description("Change the roles allowed to use the bot")]
 pub async fn set_allowed_roles(
@@ -240,6 +243,8 @@ INSERT INTO roles (guild_id, role)
     description = "Name or ID of sound to set as your greet sound",
     required = false
 )]
+#[example("`/greet` - remove your join sound")]
+#[example("`/greet 1523` - set your join sound to sound with ID 1523")]
 pub async fn set_greet_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -312,6 +317,8 @@ pub async fn set_greet_sound(
 #[group("Settings")]
 #[description("Configure whether users should be able to use join sounds")]
 #[required_permissions(Restricted)]
+#[example("`/allow_greet` - disable greet sounds in the server")]
+#[example("`/allow_greet` - re-enable greet sounds in the server")]
 pub async fn allow_greet_sounds(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),

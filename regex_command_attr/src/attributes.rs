@@ -5,7 +5,7 @@ use syn::parse::{Error, Result};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Lit, LitStr, Meta, NestedMeta, Path};
 
-use crate::structures::{ApplicationCommandOptionType, Arg, PermissionLevel};
+use crate::structures::{ApplicationCommandOptionType, Arg, CommandKind, PermissionLevel};
 use crate::util::{AsOption, LitExt};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -317,6 +317,18 @@ impl AttributeOption for PermissionLevel {
             .literals
             .get(0)
             .map(|(_, l)| PermissionLevel::from_str(&*l.to_str()).unwrap())
+            .unwrap())
+    }
+}
+
+impl AttributeOption for CommandKind {
+    fn parse(values: Values) -> Result<Self> {
+        validate(&values, &[ValueKind::SingleList])?;
+
+        Ok(values
+            .literals
+            .get(0)
+            .map(|(_, l)| CommandKind::from_str(&*l.to_str()).unwrap())
             .unwrap())
     }
 }

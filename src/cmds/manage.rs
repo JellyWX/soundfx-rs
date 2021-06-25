@@ -186,6 +186,7 @@ pub async fn upload_new_sound(
     kind = "String",
     required = true
 )]
+#[example("`/delete beep` - delete the sound with the name \"beep\"")]
 pub async fn delete_sound(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
@@ -278,6 +279,8 @@ pub async fn delete_sound(
     description = "Sound name or ID to change the privacy setting of",
     required = true
 )]
+#[example("`/public 12` - change sound with ID 12 to private")]
+#[example("`/public 12` - change sound with ID 12 back to public")]
 pub async fn change_public(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
