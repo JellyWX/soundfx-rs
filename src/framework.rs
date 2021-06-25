@@ -70,10 +70,6 @@ impl Args {
         Self { args }
     }
 
-    pub fn len(&self) -> usize {
-        self.args.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.args.is_empty()
     }
@@ -345,7 +341,7 @@ pub struct Command {
 
     pub desc: &'static str,
     pub examples: &'static [&'static str],
-    pub group: Option<&'static str>,
+    pub group: &'static str,
 
     pub allow_slash: bool,
     pub required_permissions: PermissionLevel,
@@ -440,7 +436,7 @@ impl fmt::Debug for Command {
 
 pub struct RegexFramework {
     pub commands: HashMap<String, &'static Command>,
-    commands_: HashSet<&'static Command>,
+    pub commands_: HashSet<&'static Command>,
     command_matcher: Regex,
     default_prefix: String,
     client_id: u64,

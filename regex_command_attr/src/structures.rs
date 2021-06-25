@@ -7,7 +7,7 @@ use syn::{
     Attribute, Block, FnArg, Ident, Pat, ReturnType, Stmt, Token, Type, Visibility,
 };
 
-use crate::util::{self, Argument, AsOption, Parenthesised};
+use crate::util::{self, Argument, Parenthesised};
 
 fn parse_argument(arg: FnArg) -> Result<Argument> {
     match arg {
@@ -290,7 +290,7 @@ impl Default for Arg {
 pub(crate) struct Options {
     pub aliases: Vec<String>,
     pub description: String,
-    pub group: AsOption<String>,
+    pub group: String,
     pub examples: Vec<String>,
     pub required_permissions: PermissionLevel,
     pub allow_slash: bool,
@@ -302,6 +302,7 @@ impl Options {
     pub fn new() -> Self {
         Self {
             allow_slash: true,
+            group: "Other".to_string(),
             ..Default::default()
         }
     }
