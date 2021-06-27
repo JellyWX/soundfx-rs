@@ -140,7 +140,13 @@ async fn join_channel(
     (call, res)
 }
 
-async fn play_cmd(ctx: &Context, guild: Guild, user_id: UserId, args: Args, loop_: bool) -> String {
+async fn play_from_query(
+    ctx: &Context,
+    guild: Guild,
+    user_id: UserId,
+    args: Args,
+    loop_: bool,
+) -> String {
     let guild_id = guild.id;
 
     let channel_to_join = guild

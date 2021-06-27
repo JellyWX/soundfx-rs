@@ -17,7 +17,7 @@ use crate::{
     event_handlers::RestartTrack,
     framework::{Args, CommandInvoke, CreateGenericResponse},
     guild_data::CtxGuildData,
-    join_channel, play_cmd,
+    join_channel, play_from_query,
     sound::Sound,
     AudioIndex, MySQL,
 };
@@ -48,7 +48,7 @@ pub async fn play(
         .respond(
             ctx.http.clone(),
             CreateGenericResponse::new()
-                .content(play_cmd(ctx, guild, invoke.author_id(), args, false).await),
+                .content(play_from_query(ctx, guild, invoke.author_id(), args, false).await),
         )
         .await?;
 
@@ -78,7 +78,7 @@ pub async fn loop_play(
         .respond(
             ctx.http.clone(),
             CreateGenericResponse::new()
-                .content(play_cmd(ctx, guild, invoke.author_id(), args, true).await),
+                .content(play_from_query(ctx, guild, invoke.author_id(), args, true).await),
         )
         .await?;
 
@@ -184,6 +184,7 @@ __Available ambience sounds:__
 }
 
 #[command("soundboard")]
+#[required_permissions(Managed)]
 #[group("Play")]
 #[kind(Slash)]
 #[description("Get a menu of sounds with buttons to play them")]

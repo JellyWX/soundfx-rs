@@ -1,7 +1,7 @@
 use crate::{
     framework::RegexFramework,
     guild_data::CtxGuildData,
-    join_channel, play_audio, play_cmd,
+    join_channel, play_audio, play_from_query,
     sound::{JoinSoundCtx, Sound},
     MySQL, ReqwestClient,
 };
@@ -208,7 +208,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                     };
                     args.args.insert("query".to_string(), data.custom_id);
 
-                    play_cmd(
+                    play_from_query(
                         &ctx,
                         interaction.guild(ctx.cache.clone()).await.unwrap(),
                         member.user.id,
