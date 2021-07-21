@@ -21,6 +21,7 @@ use serenity::{
     client::{bridge::gateway::GatewayIntents, Client, Context},
     http::Http,
     model::{
+        channel::Channel,
         guild::Guild,
         id::{ChannelId, GuildId, UserId},
     },
@@ -135,6 +136,12 @@ async fn join_channel(
     {
         // set call to deafen
         let _ = call.lock().await.deafen(true).await;
+    }
+
+    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await {
+        channel
+            .edit_voice_state(&ctx, ctx.cache.current_user().await, |v| v.suppress(false))
+            .await;
     }
 
     (call, res)
