@@ -148,6 +148,12 @@ pub async fn change_prefix(
 #[kind(Text)]
 #[group("Settings")]
 #[description("Change the roles allowed to use the bot")]
+#[arg(
+    name = "roles",
+    kind = "String",
+    description = "The role mentions to enlist",
+    required = true
+)]
 pub async fn set_allowed_roles(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
