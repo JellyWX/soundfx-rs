@@ -4,7 +4,7 @@ use serenity::{
     builder::CreateActionRow,
     client::Context,
     framework::standard::CommandResult,
-    model::interactions::{ButtonStyle, InteractionResponseType},
+    model::interactions::{message_component::ButtonStyle, InteractionResponseType},
 };
 
 use songbird::{
@@ -42,7 +42,7 @@ pub async fn play(
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).await.unwrap();
+    let guild = invoke.guild(ctx.cache.clone()).unwrap();
 
     invoke
         .respond(
@@ -72,7 +72,7 @@ pub async fn loop_play(
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).await.unwrap();
+    let guild = invoke.guild(ctx.cache.clone()).unwrap();
 
     invoke
         .respond(
@@ -101,7 +101,7 @@ pub async fn play_ambience(
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).await.unwrap();
+    let guild = invoke.guild(ctx.cache.clone()).unwrap();
 
     let channel_to_join = guild
         .voice_states

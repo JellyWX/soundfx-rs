@@ -192,7 +192,7 @@ async fn info(
     invoke: &(dyn CommandInvoke + Sync + Send),
     _args: Args,
 ) -> CommandResult {
-    let current_user = ctx.cache.current_user().await;
+    let current_user = ctx.cache.current_user();
 
     invoke.respond(ctx.http.clone(), CreateGenericResponse::new()
         .embed(|e| e

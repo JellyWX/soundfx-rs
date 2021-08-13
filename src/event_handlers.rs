@@ -14,7 +14,7 @@ use serenity::{
         gateway::{Activity, Ready},
         guild::Guild,
         id::GuildId,
-        interactions::Interaction,
+        interactions::{Interaction, InteractionResponseType},
         voice::VoiceState,
     },
     utils::shard_id,
@@ -22,9 +22,8 @@ use serenity::{
 
 use songbird::{Event, EventContext, EventHandler as SongbirdEventHandler};
 
-use crate::framework::{Args, CommandInvoke};
-use serenity::model::interactions::{InteractionData, InteractionType};
-use serenity::model::prelude::InteractionResponseType;
+use crate::framework::Args;
+
 use std::{collections::HashMap, env};
 
 pub struct RestartTrack;
@@ -63,13 +62,12 @@ impl EventHandler for Handler {
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
         if is_new {
             if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {
-                let shard_count = ctx.cache.shard_count().await;
+                let shard_count = ctx.cache.shard_count();
                 let current_shard_id = shard_id(guild.id.as_u64().to_owned(), shard_count);
 
                 let guild_count = ctx
                     .cache
                     .guilds()
-                    .await
                     .iter()
                     .filter(|g| shard_id(g.as_u64().to_owned(), shard_count) == current_shard_id)
                     .count() as u64;
@@ -91,7 +89,7 @@ impl EventHandler for Handler {
                     .post(
                         format!(
                             "https://top.gg/api/bots/{}/stats",
-                            ctx.cache.current_user_id().await.as_u64()
+                            ctx.cache.current_user_id().as_u64()
                         )
                         .as_str(),
                     )
@@ -117,8 +115,7 @@ impl EventHandler for Handler {
         if let Some(past_state) = old {
             if let (Some(guild_id), None) = (guild_id_opt, new.channel_id) {
                 if let Some(channel_id) = past_state.channel_id {
-                    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await
-                    {
+                    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx) {
                         if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
                             let songbird = songbird::get(&ctx).await.unwrap();
 
@@ -128,7 +125,7 @@ impl EventHandler for Handler {
                 }
             }
         } else if let (Some(guild_id), Some(user_channel)) = (guild_id_opt, new.channel_id) {
-            if let Some(guild) = ctx.cache.guild(guild_id).await {
+            if let Some(guild) = ctx.cache.guild(guild_id) {
                 let pool = ctx
                     .data
                     .read()
@@ -183,12 +180,12 @@ SELECT name, id, plays, public, server_id, uploader_id
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if interaction.guild_id.is_none() {
-            return;
-        }
+        match interaction {
+            Interaction::ApplicationCommand(application_command) => {
+                if application_command.guild_id.is_none() {
+                    return;
+                }
 
-        match interaction.kind {
-            InteractionType::ApplicationCommand => {
                 let framework = ctx
                     .data
                     .read()
@@ -197,33 +194,34 @@ SELECT name, id, plays, public, server_id, uploader_id
                     .cloned()
                     .expect("RegexFramework not found in context");
 
-                framework.execute(ctx, interaction).await;
+                framework.execute(ctx, application_command).await;
             }
-            InteractionType::MessageComponent => {
-                if let (Some(InteractionData::MessageComponent(data)), Some(member)) =
-                    (interaction.clone().data, interaction.clone().member)
-                {
-                    let mut args = Args {
-                        args: Default::default(),
-                    };
-                    args.args.insert("query".to_string(), data.custom_id);
-
-                    play_from_query(
-                        &ctx,
-                        interaction.guild(ctx.cache.clone()).await.unwrap(),
-                        member.user.id,
-                        args,
-                        false,
-                    )
-                    .await;
-
-                    interaction
-                        .create_interaction_response(ctx, |r| {
-                            r.kind(InteractionResponseType::DeferredUpdateMessage)
-                        })
-                        .await
-                        .unwrap();
+            Interaction::MessageComponent(component) => {
+                if component.guild_id.is_none() {
+                    return;
                 }
+
+                let mut args = Args {
+                    args: Default::default(),
+                };
+                args.args
+                    .insert("query".to_string(), component.data.custom_id.clone());
+
+                play_from_query(
+                    &ctx,
+                    component.guild_id.unwrap().to_guild_cached(&ctx).unwrap(),
+                    component.user.id,
+                    args,
+                    false,
+                )
+                .await;
+
+                component
+                    .create_interaction_response(ctx, |r| {
+                        r.kind(InteractionResponseType::DeferredUpdateMessage)
+                    })
+                    .await
+                    .unwrap();
             }
             _ => {}
         }

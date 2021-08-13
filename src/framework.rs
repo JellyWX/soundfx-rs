@@ -10,8 +10,12 @@ use serenity::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
         id::{ChannelId, GuildId, UserId},
-        interactions::{ApplicationCommand, Interaction, InteractionData},
-        prelude::{ApplicationCommandOptionType, InteractionResponseType},
+        interactions::{
+            application_command::{
+                ApplicationCommand, ApplicationCommandInteraction, ApplicationCommandOptionType,
+            },
+            InteractionResponseType,
+        },
     },
     prelude::TypeMapKey,
     Result as SerenityResult,
@@ -126,11 +130,11 @@ impl CreateGenericResponse {
 pub trait CommandInvoke {
     fn channel_id(&self) -> ChannelId;
     fn guild_id(&self) -> Option<GuildId>;
-    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild>;
+    fn guild(&self, cache: Arc<Cache>) -> Option<Guild>;
     fn author_id(&self) -> UserId;
     async fn member(&self, context: &Context) -> SerenityResult<Member>;
     fn msg(&self) -> Option<Message>;
-    fn interaction(&self) -> Option<Interaction>;
+    fn interaction(&self) -> Option<ApplicationCommandInteraction>;
     async fn respond(
         &self,
         http: Arc<Http>,
@@ -153,8 +157,8 @@ impl CommandInvoke for Message {
         self.guild_id
     }
 
-    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
-        self.guild(cache).await
+    fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
+        self.guild(cache)
     }
 
     fn author_id(&self) -> UserId {
@@ -169,7 +173,7 @@ impl CommandInvoke for Message {
         Some(self.clone())
     }
 
-    fn interaction(&self) -> Option<Interaction> {
+    fn interaction(&self) -> Option<ApplicationCommandInteraction> {
         None
     }
 
@@ -187,7 +191,10 @@ impl CommandInvoke for Message {
                 }
 
                 if let Some(components) = generic_response.components {
-                    m.set_components(components.clone());
+                    m.components(|c| {
+                        *c = components;
+                        c
+                    });
                 }
 
                 m
@@ -210,7 +217,10 @@ impl CommandInvoke for Message {
                 }
 
                 if let Some(components) = generic_response.components {
-                    m.set_components(components.clone());
+                    m.components(|c| {
+                        *c = components;
+                        c
+                    });
                 }
 
                 m
@@ -221,18 +231,18 @@ impl CommandInvoke for Message {
 }
 
 #[async_trait]
-impl CommandInvoke for Interaction {
+impl CommandInvoke for ApplicationCommandInteraction {
     fn channel_id(&self) -> ChannelId {
-        self.channel_id.unwrap()
+        self.channel_id
     }
 
     fn guild_id(&self) -> Option<GuildId> {
         self.guild_id
     }
 
-    async fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
+    fn guild(&self, cache: Arc<Cache>) -> Option<Guild> {
         if let Some(guild_id) = self.guild_id {
-            guild_id.to_guild_cached(cache).await
+            guild_id.to_guild_cached(cache)
         } else {
             None
         }
@@ -250,7 +260,7 @@ impl CommandInvoke for Interaction {
         None
     }
 
-    fn interaction(&self) -> Option<Interaction> {
+    fn interaction(&self) -> Option<ApplicationCommandInteraction> {
         Some(self.clone())
     }
 
@@ -269,7 +279,10 @@ impl CommandInvoke for Interaction {
                     }
 
                     if let Some(components) = generic_response.components {
-                        d.set_components(components.clone());
+                        d.components(|c| {
+                            *c = components;
+                            c
+                        });
                     }
 
                     d
@@ -292,7 +305,10 @@ impl CommandInvoke for Interaction {
             }
 
             if let Some(components) = generic_response.components {
-                d.set_components(components.clone());
+                d.components(|c| {
+                    *c = components;
+                    c
+                });
             }
 
             d
@@ -652,63 +668,64 @@ impl RegexFramework {
         info!("{} slash commands built! Ready to go", count);
     }
 
-    pub async fn execute(&self, ctx: Context, interaction: Interaction) {
-        if let Some(InteractionData::ApplicationCommand(data)) = interaction.data.clone() {
-            let command = {
-                let name = data.name;
+    pub async fn execute(&self, ctx: Context, interaction: ApplicationCommandInteraction) {
+        let command = {
+            self.commands.get(&interaction.data.name).expect(&format!(
+                "Received invalid command: {}",
+                interaction.data.name
+            ))
+        };
 
-                self.commands
-                    .get(&name)
-                    .expect(&format!("Received invalid command: {}", name))
-            };
+        if command
+            .check_permissions(
+                &ctx,
+                &interaction.guild(ctx.cache.clone()).unwrap(),
+                &interaction.clone().member.unwrap(),
+            )
+            .await
+        {
+            let mut args = HashMap::new();
 
-            if command
-                .check_permissions(
-                    &ctx,
-                    &interaction.guild(ctx.cache.clone()).await.unwrap(),
-                    &interaction.member(&ctx).await.unwrap(),
-                )
-                .await
+            for arg in interaction
+                .data
+                .options
+                .iter()
+                .filter(|o| o.value.is_some())
             {
-                let mut args = HashMap::new();
-
-                for arg in data.options.iter().filter(|o| o.value.is_some()) {
-                    args.insert(
-                        arg.name.clone(),
-                        match arg.value.clone().unwrap() {
-                            Value::Bool(b) => {
-                                if b {
-                                    arg.name.clone()
-                                } else {
-                                    String::new()
-                                }
+                args.insert(
+                    arg.name.clone(),
+                    match arg.value.clone().unwrap() {
+                        Value::Bool(b) => {
+                            if b {
+                                arg.name.clone()
+                            } else {
+                                String::new()
                             }
-                            Value::Number(n) => n.to_string(),
-                            Value::String(s) => s,
-                            _ => String::new(),
-                        },
-                    );
-                }
+                        }
+                        Value::Number(n) => n.to_string(),
+                        Value::String(s) => s,
+                        _ => String::new(),
+                    },
+                );
+            }
 
-                (command.fun)(&ctx, &interaction, Args { args })
-                    .await
-                    .unwrap();
-            } else if command.required_permissions == PermissionLevel::Managed {
-                let _ = interaction
+            (command.fun)(&ctx, &interaction, Args { args })
+                .await
+                .unwrap();
+        } else if command.required_permissions == PermissionLevel::Managed {
+            let _ = interaction
                     .respond(
                         ctx.http.clone(),
                         CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
                     )
                     .await;
-            } else if command.required_permissions == PermissionLevel::Restricted {
-                let _ = interaction
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new()
-                            .content("You must be an Admin to do this command"),
-                    )
-                    .await;
-            }
+        } else if command.required_permissions == PermissionLevel::Restricted {
+            let _ = interaction
+                .respond(
+                    ctx.http.clone(),
+                    CreateGenericResponse::new().content("You must be an Admin to do this command"),
+                )
+                .await;
         }
     }
 }
@@ -725,9 +742,9 @@ impl Framework for RegexFramework {
             ctx: &Context,
             channel: &GuildChannel,
         ) -> SerenityResult<PermissionCheck> {
-            let user_id = ctx.cache.current_user_id().await;
+            let user_id = ctx.cache.current_user_id();
 
-            let channel_perms = channel.permissions_for_user(ctx, user_id).await?;
+            let channel_perms = channel.permissions_for_user(ctx, user_id)?;
 
             Ok(
                 if channel_perms.send_messages() && channel_perms.embed_links() {
@@ -754,8 +771,8 @@ impl Framework for RegexFramework {
         if msg.author.bot || msg.content.is_empty() {
         }
         // Guild Command
-        else if let (Some(guild), Some(Channel::Guild(channel))) =
-            (msg.guild(&ctx).await, msg.channel(&ctx).await)
+        else if let (Some(guild), Ok(Channel::Guild(channel))) =
+            (msg.guild(&ctx), msg.channel(&ctx).await)
         {
             if let Some(full_match) = self.command_matcher.captures(&msg.content) {
                 if check_prefix(&ctx, &guild, full_match.name("prefix")).await {

@@ -110,7 +110,7 @@ async fn join_channel(
     channel_id: ChannelId,
 ) -> (Arc<Mutex<Call>>, JoinResult<()>) {
     let songbird = songbird::get(ctx).await.unwrap();
-    let current_user = ctx.cache.current_user_id().await;
+    let current_user = ctx.cache.current_user_id();
 
     let current_voice_state = guild
         .voice_states
@@ -138,9 +138,9 @@ async fn join_channel(
         let _ = call.lock().await.deafen(true).await;
     }
 
-    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx).await {
+    if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx) {
         channel
-            .edit_voice_state(&ctx, ctx.cache.current_user().await, |v| v.suppress(false))
+            .edit_voice_state(&ctx, ctx.cache.current_user(), |v| v.suppress(false))
             .await;
     }
 

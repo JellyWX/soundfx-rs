@@ -296,7 +296,9 @@ impl ApplicationCommandOptionType {
 
 impl ToTokens for ApplicationCommandOptionType {
     fn to_tokens(&self, stream: &mut TokenStream2) {
-        let path = quote!(serenity::model::interactions::ApplicationCommandOptionType);
+        let path = quote!(
+            serenity::model::interactions::application_command::ApplicationCommandOptionType
+        );
         let variant = match self {
             ApplicationCommandOptionType::SubCommand => quote!(SubCommand),
             ApplicationCommandOptionType::SubCommandGroup => quote!(SubCommandGroup),

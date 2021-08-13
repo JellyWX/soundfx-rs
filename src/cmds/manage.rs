@@ -225,7 +225,7 @@ pub async fn delete_sound(
             } else {
                 let has_perms = {
                     if let Ok(member) = invoke.member(&ctx).await {
-                        if let Ok(perms) = member.permissions(&ctx).await {
+                        if let Ok(perms) = member.permissions(&ctx) {
                             perms.manage_guild()
                         } else {
                             false
