@@ -10,6 +10,7 @@ pub struct GuildData {
     pub prefix: String,
     pub volume: u8,
     pub allow_greets: bool,
+    pub allowed_role: Option<u64>,
 }
 
 #[async_trait]
@@ -68,7 +69,7 @@ impl GuildData {
         let guild_data = sqlx::query_as_unchecked!(
             GuildData,
             "
-SELECT id, prefix, volume, allow_greets
+SELECT id, prefix, volume, allow_greets, allowed_role
     FROM servers
     WHERE id = ?
             ",
@@ -102,22 +103,12 @@ INSERT INTO servers (id)
         .execute(&db_pool)
         .await?;
 
-        sqlx::query!(
-            "
-INSERT IGNORE INTO roles (guild_id, role)
-    VALUES (?, ?)
-            ",
-            guild_id.as_u64(),
-            guild_id.as_u64()
-        )
-        .execute(&db_pool)
-        .await?;
-
         Ok(GuildData {
             id: guild_id.as_u64().to_owned(),
             prefix: String::from("?"),
             volume: 100,
             allow_greets: true,
+            allowed_role: None,
         })
     }
 
@@ -131,13 +122,15 @@ UPDATE servers
 SET
     prefix = ?,
     volume = ?,
-    allow_greets = ?
+    allow_greets = ?,
+    allowed_role = ?
 WHERE
     id = ?
             ",
             self.prefix,
             self.volume,
             self.allow_greets,
+            self.allowed_role,
             self.id
         )
         .execute(&db_pool)

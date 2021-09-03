@@ -32,9 +32,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::{guild_data::CtxGuildData, MySQL};
+use crate::guild_data::CtxGuildData;
 use serde_json::Value;
 use serenity::builder::CreateComponents;
+use serenity::model::id::RoleId;
 
 type CommandFn = for<'fut> fn(
     &'fut Context,
@@ -72,10 +73,6 @@ impl Args {
         }
 
         Self { args }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.args.is_empty()
     }
 
     pub fn named<D: ToString>(&self, name: D) -> Option<&String> {
@@ -397,42 +394,14 @@ impl Command {
             }
 
             if self.required_permissions == PermissionLevel::Managed {
-                let pool = ctx
-                    .data
-                    .read()
-                    .await
-                    .get::<MySQL>()
-                    .cloned()
-                    .expect("Could not get SQLPool from data");
+                match ctx.guild_data(guild.id).await {
+                    Ok(guild_data) => guild_data.read().await.allowed_role.map_or(true, |role| {
+                        role == guild.id.0 || {
+                            let role_id = RoleId(role);
 
-                match sqlx::query!(
-                    "
-SELECT role
-    FROM roles
-    WHERE guild_id = ?
-                    ",
-                    guild.id.as_u64()
-                )
-                .fetch_all(&pool)
-                .await
-                {
-                    Ok(rows) => {
-                        let role_ids = member
-                            .roles
-                            .iter()
-                            .map(|r| *r.as_u64())
-                            .collect::<Vec<u64>>();
-
-                        for row in rows {
-                            if role_ids.contains(&row.role) || &row.role == guild.id.as_u64() {
-                                return true;
-                            }
+                            member.roles.contains(&role_id)
                         }
-
-                        false
-                    }
-
-                    Err(sqlx::Error::RowNotFound) => false,
+                    }),
 
                     Err(e) => {
                         warn!("Unexpected error occurred querying roles: {:?}", e);
@@ -716,7 +685,7 @@ impl RegexFramework {
             let _ = interaction
                     .respond(
                         ctx.http.clone(),
-                        CreateGenericResponse::new().content("You must either be an Admin or have a role specified in `?roles` to do this command")
+                        CreateGenericResponse::new().content("You must either be an Admin or have a role specified by `/roles` to do this command")
                     )
                     .await;
         } else if command.required_permissions == PermissionLevel::Restricted {
