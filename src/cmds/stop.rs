@@ -1,10 +1,8 @@
 use regex_command_attr::command;
-
 use serenity::{client::Context, framework::standard::CommandResult};
+use songbird;
 
 use crate::framework::{Args, CommandInvoke, CreateGenericResponse};
-
-use songbird;
 
 #[command("stop")]
 #[required_permissions(Managed)]

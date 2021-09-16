@@ -1,10 +1,4 @@
-use crate::{
-    framework::RegexFramework,
-    guild_data::CtxGuildData,
-    join_channel, play_audio, play_from_query,
-    sound::{JoinSoundCtx, Sound},
-    MySQL, ReqwestClient,
-};
+use std::{collections::HashMap, env};
 
 use serenity::{
     async_trait,
@@ -19,12 +13,15 @@ use serenity::{
     },
     utils::shard_id,
 };
-
 use songbird::{Event, EventContext, EventHandler as SongbirdEventHandler};
 
-use crate::framework::Args;
-
-use std::{collections::HashMap, env};
+use crate::{
+    framework::{Args, RegexFramework},
+    guild_data::CtxGuildData,
+    join_channel, play_audio, play_from_query,
+    sound::{JoinSoundCtx, Sound},
+    MySQL, ReqwestClient,
+};
 
 pub struct RestartTrack;
 

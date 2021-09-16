@@ -1,15 +1,12 @@
-use super::error::ErrorTypes;
-
-use sqlx::mysql::MySqlPool;
-
-use tokio::{fs::File, io::AsyncWriteExt, process::Command};
-
-use songbird::input::restartable::Restartable;
-
 use std::{env, path::Path};
 
-use crate::{JoinSoundCache, MySQL};
 use serenity::{async_trait, model::id::UserId, prelude::Context};
+use songbird::input::restartable::Restartable;
+use sqlx::mysql::MySqlPool;
+use tokio::{fs::File, io::AsyncWriteExt, process::Command};
+
+use super::error::ErrorTypes;
+use crate::{JoinSoundCache, MySQL};
 
 #[async_trait]
 pub trait JoinSoundCtx {
@@ -83,17 +80,15 @@ SELECT join_sound_id
 
         let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
 
-        if join_sound_cache.get(&user_id).is_none() {
-            let _ = sqlx::query!(
-                "
+        let _ = sqlx::query!(
+            "
 INSERT IGNORE INTO users (user)
     VALUES (?)
             ",
-                user_id.as_u64()
-            )
-            .execute(&pool)
-            .await;
-        }
+            user_id.as_u64()
+        )
+        .execute(&pool)
+        .await;
 
         let _ = sqlx::query!(
             "

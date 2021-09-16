@@ -1,14 +1,12 @@
-use regex_command_attr::command;
+use std::{collections::HashMap, sync::Arc};
 
+use regex_command_attr::command;
 use serenity::{client::Context, framework::standard::CommandResult};
 
 use crate::{
-    framework::{Args, CommandInvoke, CreateGenericResponse, RegexFramework},
+    framework::{Args, CommandInvoke, CommandKind, CreateGenericResponse, RegexFramework},
     THEME_COLOR,
 };
-
-use crate::framework::CommandKind;
-use std::{collections::HashMap, sync::Arc};
 
 #[command]
 #[group("Information")]

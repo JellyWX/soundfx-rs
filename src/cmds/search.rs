@@ -1,5 +1,4 @@
 use regex_command_attr::command;
-
 use serenity::{client::Context, framework::standard::CommandResult};
 
 use crate::{

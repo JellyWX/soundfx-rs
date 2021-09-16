@@ -8,15 +8,11 @@ mod framework;
 mod guild_data;
 mod sound;
 
-use crate::{
-    event_handlers::Handler,
-    framework::{Args, RegexFramework},
-    guild_data::{CtxGuildData, GuildData},
-    sound::Sound,
-};
+use std::{collections::HashMap, env, sync::Arc};
 
+use dashmap::DashMap;
+use dotenv::dotenv;
 use log::info;
-
 use serenity::{
     client::{bridge::gateway::GatewayIntents, Client, Context},
     http::Http,
@@ -27,18 +23,16 @@ use serenity::{
     },
     prelude::{Mutex, TypeMapKey},
 };
-
 use songbird::{create_player, error::JoinResult, tracks::TrackHandle, Call, SerenityInit};
-
 use sqlx::mysql::MySqlPool;
-
-use dotenv::dotenv;
-
-use dashmap::DashMap;
-
-use std::{collections::HashMap, env, sync::Arc};
-
 use tokio::sync::{MutexGuard, RwLock};
+
+use crate::{
+    event_handlers::Handler,
+    framework::{Args, RegexFramework},
+    guild_data::{CtxGuildData, GuildData},
+    sound::Sound,
+};
 
 struct MySQL;
 

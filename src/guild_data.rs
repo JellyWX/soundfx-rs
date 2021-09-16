@@ -1,8 +1,10 @@
-use crate::{GuildDataCache, MySQL};
+use std::sync::Arc;
+
 use serenity::{async_trait, model::id::GuildId, prelude::Context};
 use sqlx::mysql::MySqlPool;
-use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::{GuildDataCache, MySQL};
 
 #[derive(Clone)]
 pub struct GuildData {

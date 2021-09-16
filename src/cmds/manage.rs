@@ -1,5 +1,6 @@
-use regex_command_attr::command;
+use std::time::Duration;
 
+use regex_command_attr::command;
 use serenity::{
     client::Context,
     framework::standard::CommandResult,
@@ -11,8 +12,6 @@ use crate::{
     sound::Sound,
     MySQL, MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE,
 };
-
-use std::time::Duration;
 
 #[command("upload")]
 #[group("Manage")]

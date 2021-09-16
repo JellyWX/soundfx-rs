@@ -1,12 +1,12 @@
-use regex_command_attr::command;
+use std::{convert::TryFrom, time::Duration};
 
+use regex_command_attr::command;
 use serenity::{
     builder::CreateActionRow,
     client::Context,
     framework::standard::CommandResult,
     model::interactions::{message_component::ButtonStyle, InteractionResponseType},
 };
-
 use songbird::{
     create_player, ffmpeg,
     input::{cached::Memory, Input},
@@ -21,8 +21,6 @@ use crate::{
     sound::Sound,
     AudioIndex, MySQL,
 };
-
-use std::{convert::TryFrom, time::Duration};
 
 #[command]
 #[aliases("p")]

@@ -1,6 +1,16 @@
+use std::{
+    collections::{HashMap, HashSet},
+    env, fmt,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
+use log::{debug, error, info, warn};
+use regex::{Match, Regex, RegexBuilder};
+use serde_json::Value;
 use serenity::{
     async_trait,
-    builder::CreateEmbed,
+    builder::{CreateComponents, CreateEmbed},
     cache::Cache,
     client::Context,
     framework::{standard::CommandResult, Framework},
@@ -9,7 +19,7 @@ use serenity::{
     model::{
         channel::{Channel, GuildChannel, Message},
         guild::{Guild, Member},
-        id::{ChannelId, GuildId, UserId},
+        id::{ChannelId, GuildId, RoleId, UserId},
         interactions::{
             application_command::{
                 ApplicationCommand, ApplicationCommandInteraction, ApplicationCommandOptionType,
@@ -21,21 +31,7 @@ use serenity::{
     Result as SerenityResult,
 };
 
-use log::{debug, error, info, warn};
-
-use regex::{Match, Regex, RegexBuilder};
-
-use std::{
-    collections::{HashMap, HashSet},
-    env, fmt,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
-
 use crate::guild_data::CtxGuildData;
-use serde_json::Value;
-use serenity::builder::CreateComponents;
-use serenity::model::id::RoleId;
 
 type CommandFn = for<'fut> fn(
     &'fut Context,
