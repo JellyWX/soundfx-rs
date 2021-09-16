@@ -372,7 +372,9 @@ pub async fn soundboard(
         .await?;
 
         if let Some(sound) = search.first() {
-            sounds.push(sound.clone());
+            if !sounds.contains(sound) {
+                sounds.push(sound.clone());
+            }
         }
     }
 

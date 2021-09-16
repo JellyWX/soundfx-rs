@@ -10,7 +10,7 @@ use regex::{Match, Regex, RegexBuilder};
 use serde_json::Value;
 use serenity::{
     async_trait,
-    builder::{CreateComponents, CreateEmbed},
+    builder::{CreateApplicationCommands, CreateComponents, CreateEmbed},
     cache::Cache,
     client::Context,
     framework::{standard::CommandResult, Framework},
@@ -505,132 +505,55 @@ impl RegexFramework {
         self
     }
 
+    fn _populate_commands<'a>(
+        &self,
+        commands: &'a mut CreateApplicationCommands,
+    ) -> &'a mut CreateApplicationCommands {
+        for command in &self.commands_ {
+            commands.create_application_command(|c| {
+                c.name(command.names[0]).description(command.desc);
+
+                for arg in command.args {
+                    c.create_option(|o| {
+                        o.name(arg.name)
+                            .description(arg.description)
+                            .kind(arg.kind)
+                            .required(arg.required)
+                    });
+                }
+
+                c
+            });
+        }
+
+        commands
+    }
+
     pub async fn build_slash(&self, http: impl AsRef<Http>) {
         info!("Building slash commands...");
 
-        let mut count = 0;
-
-        if let Some(guild_id) = env::var("TEST_GUILD")
-            .map(|v| v.parse::<u64>().ok())
+        match env::var("TEST_GUILD")
+            .map(|i| i.parse::<u64>().ok())
             .ok()
             .flatten()
-            .map(|v| GuildId(v))
+            .map(|i| GuildId(i))
         {
-            for command in self
-                .commands_
-                .iter()
-                .filter(|c| c.kind != CommandKind::Text)
-            {
-                guild_id
-                    .create_application_command(&http, |a| {
-                        a.name(command.names[0]).description(command.desc);
-
-                        for arg in command.args {
-                            a.create_option(|o| {
-                                o.name(arg.name)
-                                    .description(arg.description)
-                                    .kind(arg.kind)
-                                    .required(arg.required)
-                            });
-                        }
-
-                        a
-                    })
-                    .await
-                    .expect(&format!(
-                        "Failed to create application command for {}",
-                        command.names[0]
-                    ));
-
-                count += 1;
-            }
-        } else {
-            info!("Checking for existing commands...");
-
-            let current_commands = ApplicationCommand::get_global_application_commands(&http)
+            None => {
+                ApplicationCommand::set_global_application_commands(&http, |c| {
+                    self._populate_commands(c)
+                })
                 .await
-                .expect("Failed to fetch existing commands");
-
-            debug!("Existing commands: {:?}", current_commands);
-
-            // delete commands not in use
-            for command in &current_commands {
-                if self
-                    .commands_
-                    .iter()
-                    .find(|c| c.names[0] == command.name)
-                    .is_none()
-                {
-                    info!("Deleting command {}", command.name);
-
-                    ApplicationCommand::delete_global_application_command(&http, command.id)
-                        .await
-                        .expect("Failed to delete an unused command");
-                }
+                .unwrap();
             }
-
-            for command in self
-                .commands_
-                .iter()
-                .filter(|c| c.kind != CommandKind::Text)
-            {
-                let already_created = if let Some(current_command) = current_commands
-                    .iter()
-                    .find(|curr| curr.name == command.names[0])
-                {
-                    if current_command.description == command.desc
-                        && current_command.options.len() == command.args.len()
-                    {
-                        let mut has_different_arg = false;
-
-                        for (arg, option) in
-                            command.args.iter().zip(current_command.options.clone())
-                        {
-                            if arg.required != option.required
-                                || arg.name != option.name
-                                || arg.description != option.description
-                                || arg.kind != option.kind
-                            {
-                                has_different_arg = true;
-                                break;
-                            }
-                        }
-
-                        !has_different_arg
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-
-                if !already_created {
-                    ApplicationCommand::create_global_application_command(&http, |a| {
-                        a.name(command.names[0]).description(command.desc);
-
-                        for arg in command.args {
-                            a.create_option(|o| {
-                                o.name(arg.name)
-                                    .description(arg.description)
-                                    .kind(arg.kind)
-                                    .required(arg.required)
-                            });
-                        }
-
-                        a
-                    })
+            Some(debug_guild) => {
+                debug_guild
+                    .set_application_commands(&http, |c| self._populate_commands(c))
                     .await
-                    .expect(&format!(
-                        "Failed to create application command for {}",
-                        command.names[0]
-                    ));
-
-                    count += 1;
-                }
+                    .unwrap();
             }
         }
 
-        info!("{} slash commands built! Ready to go", count);
+        info!("Slash commands built!");
     }
 
     pub async fn execute(&self, ctx: Context, interaction: ApplicationCommandInteraction) {

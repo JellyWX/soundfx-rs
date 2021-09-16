@@ -116,6 +116,12 @@ pub struct Sound {
     pub uploader_id: Option<u64>,
 }
 
+impl PartialEq for Sound {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 impl Sound {
     pub async fn search_for_sound<G: Into<u64>, U: Into<u64>>(
         query: &str,
