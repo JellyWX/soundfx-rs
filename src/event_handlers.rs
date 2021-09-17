@@ -44,18 +44,6 @@ impl EventHandler for Handler {
         ctx.set_activity(Activity::watching("for /play")).await;
     }
 
-    async fn cache_ready(&self, ctx: Context, _: Vec<GuildId>) {
-        let framework = ctx
-            .data
-            .read()
-            .await
-            .get::<RegexFramework>()
-            .cloned()
-            .expect("RegexFramework not found in context");
-
-        framework.build_slash(ctx).await;
-    }
-
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
         if is_new {
             if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {

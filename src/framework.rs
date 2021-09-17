@@ -597,6 +597,14 @@ impl RegexFramework {
                 );
             }
 
+            info!(
+                "[Shard {}] [Guild {}] /{} {:?}",
+                ctx.shard_id,
+                interaction.guild_id.unwrap(),
+                interaction.data.name,
+                args
+            );
+
             (command.fun)(&ctx, &interaction, Args { args })
                 .await
                 .unwrap();
@@ -682,6 +690,14 @@ impl Framework for RegexFramework {
                                     let member = guild.member(&ctx, &msg.author).await.unwrap();
 
                                     if command.check_permissions(&ctx, &guild, &member).await {
+                                        let _ = msg.channel_id.say(
+                                            &ctx,
+                                            format!(
+                                                "You **must** begin to switch to slash commands. All commands are available via slash commands now. If slash commands don't display in your server, please use this link: https://discord.com/api/oauth2/authorize?client_id={}&permissions=3165184&scope=applications.commands%20bot",
+                                                ctx.cache.current_user().id
+                                            )
+                                        ).await;
+
                                         (command.fun)(&ctx, &msg, Args::from(&args, command.args))
                                             .await
                                             .unwrap();

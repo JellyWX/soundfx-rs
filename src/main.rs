@@ -308,6 +308,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
+    framework_arc.build_slash(&client.cache_and_http.http).await;
+
     if let Ok((Some(lower), Some(upper))) = env::var("SHARD_RANGE").map(|sr| {
         let mut split = sr
             .split(',')
