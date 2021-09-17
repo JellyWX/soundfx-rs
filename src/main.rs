@@ -8,7 +8,7 @@ mod framework;
 mod guild_data;
 mod sound;
 
-use std::{collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, env, sync::Arc, time::Duration};
 
 use dashmap::DashMap;
 use dotenv::dotenv;
@@ -309,6 +309,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     framework_arc.build_slash(&client.cache_and_http.http).await;
+
+    let shard_manager = client.shard_manager.clone();
+    tokio::spawn(async move {
+        loop {
+            {
+                let mut shards = shard_manager
+                    .lock()
+                    .await
+                    .runners
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|(id, shard)| format!("\t{} {}", id.0, shard.stage))
+                    .collect::<Vec<String>>();
+
+                shards.sort();
+
+                info!("Shard Status: [\n{}\n]", shards.join("\n"));
+            }
+
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+    });
 
     if let Ok((Some(lower), Some(upper))) = env::var("SHARD_RANGE").map(|sr| {
         let mut split = sr
