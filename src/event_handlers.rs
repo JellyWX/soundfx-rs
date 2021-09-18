@@ -137,7 +137,7 @@ impl EventHandler for Handler {
                             let mut sound = sqlx::query_as_unchecked!(
                                 Sound,
                                 "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
                                         ",

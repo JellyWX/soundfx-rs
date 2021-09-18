@@ -155,7 +155,7 @@ pub async fn upload_new_sound(
                     invoke.respond(
                         ctx.http.clone(),
                         CreateGenericResponse::new().content(format!(
-                            "You have reached the maximum number of sounds ({}). Either delete some with `?delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**",
+                            "You have reached the maximum number of sounds ({}). Either delete some with `/delete` or join our Patreon for unlimited uploads at **https://patreon.com/jellywx**",
                             *MAX_SOUNDS,
                         ))).await?;
                 }
@@ -170,7 +170,7 @@ pub async fn upload_new_sound(
                 .await?;
         }
     } else {
-        invoke.respond(ctx.http.clone(), CreateGenericResponse::new().content("Usage: `?upload <name>`. Please ensure the name provided is less than 20 characters in length")).await?;
+        invoke.respond(ctx.http.clone(), CreateGenericResponse::new().content("Usage: `/upload <name>`. Please ensure the name provided is less than 20 characters in length")).await?;
     }
 
     Ok(())

@@ -110,7 +110,6 @@ WHERE
 pub struct Sound {
     pub name: String,
     pub id: u32,
-    pub plays: u32,
     pub public: bool,
     pub server_id: u64,
     pub uploader_id: Option<u64>,
@@ -151,7 +150,7 @@ impl Sound {
             let sound = sqlx::query_as_unchecked!(
                 Self,
                 "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE id = ? AND (
         public = 1 OR
@@ -175,7 +174,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE name = ? AND (
         public = 1 OR
@@ -196,7 +195,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE name LIKE CONCAT('%', ?, '%') AND (
         public = 1 OR
@@ -311,12 +310,10 @@ SELECT COUNT(1) as count
             "
 UPDATE sounds
 SET
-    plays = ?,
     public = ?
 WHERE
     id = ?
             ",
-            self.plays,
             self.public,
             self.id
         )
@@ -408,14 +405,14 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
         }
     }
 
-    pub async fn get_user_sounds<U: Into<u64>>(
+    pub async fn user_sounds<U: Into<u64>>(
         user_id: U,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
             ",
@@ -427,14 +424,14 @@ SELECT name, id, plays, public, server_id, uploader_id
         Ok(sounds)
     }
 
-    pub async fn get_guild_sounds<G: Into<u64>>(
+    pub async fn guild_sounds<G: Into<u64>>(
         guild_id: G,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
             ",

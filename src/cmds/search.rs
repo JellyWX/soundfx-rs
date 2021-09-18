@@ -14,13 +14,7 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
     let field_iter = search_results
         .iter()
         .take(25)
-        .map(|item| {
-            (
-                &item.name,
-                format!("ID: {}\nPlays: {}", item.id, item.plays),
-                true,
-            )
-        })
+        .map(|item| (&item.name, format!("ID: {}", item.id), true))
         .filter(|item| {
             current_character_count += item.0.len() + item.1.len();
 
@@ -58,11 +52,11 @@ pub async fn list_sounds(
     let mut message_buffer;
 
     if args.named("me").map(|i| i.to_owned()) == Some("me".to_string()) {
-        sounds = Sound::get_user_sounds(invoke.author_id(), pool).await?;
+        sounds = Sound::user_sounds(invoke.author_id(), pool).await?;
 
         message_buffer = "All your sounds: ".to_string();
     } else {
-        sounds = Sound::get_guild_sounds(invoke.guild_id().unwrap(), pool).await?;
+        sounds = Sound::guild_sounds(invoke.guild_id().unwrap(), pool).await?;
 
         message_buffer = "All sounds on this server: ".to_string();
     }
@@ -141,42 +135,6 @@ pub async fn search_sounds(
     Ok(())
 }
 
-#[command("popular")]
-#[group("Search")]
-#[description("Show popular sounds")]
-pub async fn show_popular_sounds(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    _args: Args,
-) -> CommandResult {
-    let pool = ctx
-        .data
-        .read()
-        .await
-        .get::<MySQL>()
-        .cloned()
-        .expect("Could not get SQLPool from data");
-
-    let search_results = sqlx::query_as_unchecked!(
-        Sound,
-        "
-SELECT name, id, plays, public, server_id, uploader_id
-    FROM sounds
-    WHERE public = 1
-    ORDER BY plays DESC
-    LIMIT 25
-        "
-    )
-    .fetch_all(&pool)
-    .await?;
-
-    invoke
-        .respond(ctx.http.clone(), format_search_results(search_results))
-        .await?;
-
-    Ok(())
-}
-
 #[command("random")]
 #[group("Search")]
 #[description("Show a page of random sounds")]
@@ -196,7 +154,7 @@ pub async fn show_random_sounds(
     let search_results = sqlx::query_as_unchecked!(
         Sound,
         "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE public = 1
     ORDER BY rand()

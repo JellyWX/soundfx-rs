@@ -44,7 +44,7 @@ impl CtxGuildData for Context {
         } else {
             let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
 
-            match GuildData::get_from_id(guild_id, pool).await {
+            match GuildData::from_id(guild_id, pool).await {
                 Ok(d) => {
                     let lock = Arc::new(RwLock::new(d));
 
@@ -62,7 +62,7 @@ impl CtxGuildData for Context {
 }
 
 impl GuildData {
-    pub async fn get_from_id<G: Into<GuildId>>(
+    pub async fn from_id<G: Into<GuildId>>(
         guild_id: G,
         db_pool: MySqlPool,
     ) -> Result<GuildData, sqlx::Error> {
