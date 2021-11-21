@@ -1,8 +1,10 @@
-use crate::{GuildDataCache, MySQL};
+use std::sync::Arc;
+
 use serenity::{async_trait, model::id::GuildId, prelude::Context};
 use sqlx::mysql::MySqlPool;
-use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::{GuildDataCache, MySQL};
 
 #[derive(Clone)]
 pub struct GuildData {
@@ -10,6 +12,7 @@ pub struct GuildData {
     pub prefix: String,
     pub volume: u8,
     pub allow_greets: bool,
+    pub allowed_role: Option<u64>,
 }
 
 #[async_trait]
@@ -41,7 +44,7 @@ impl CtxGuildData for Context {
         } else {
             let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
 
-            match GuildData::get_from_id(guild_id, pool).await {
+            match GuildData::from_id(guild_id, pool).await {
                 Ok(d) => {
                     let lock = Arc::new(RwLock::new(d));
 
@@ -59,7 +62,7 @@ impl CtxGuildData for Context {
 }
 
 impl GuildData {
-    pub async fn get_from_id<G: Into<GuildId>>(
+    pub async fn from_id<G: Into<GuildId>>(
         guild_id: G,
         db_pool: MySqlPool,
     ) -> Result<GuildData, sqlx::Error> {
@@ -68,7 +71,7 @@ impl GuildData {
         let guild_data = sqlx::query_as_unchecked!(
             GuildData,
             "
-SELECT id, prefix, volume, allow_greets
+SELECT id, prefix, volume, allow_greets, allowed_role
     FROM servers
     WHERE id = ?
             ",
@@ -102,22 +105,12 @@ INSERT INTO servers (id)
         .execute(&db_pool)
         .await?;
 
-        sqlx::query!(
-            "
-INSERT IGNORE INTO roles (guild_id, role)
-    VALUES (?, ?)
-            ",
-            guild_id.as_u64(),
-            guild_id.as_u64()
-        )
-        .execute(&db_pool)
-        .await?;
-
         Ok(GuildData {
             id: guild_id.as_u64().to_owned(),
             prefix: String::from("?"),
             volume: 100,
             allow_greets: true,
+            allowed_role: None,
         })
     }
 
@@ -131,13 +124,15 @@ UPDATE servers
 SET
     prefix = ?,
     volume = ?,
-    allow_greets = ?
+    allow_greets = ?,
+    allowed_role = ?
 WHERE
     id = ?
             ",
             self.prefix,
             self.volume,
             self.allow_greets,
+            self.allowed_role,
             self.id
         )
         .execute(&db_pool)

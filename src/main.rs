@@ -8,15 +8,11 @@ mod framework;
 mod guild_data;
 mod sound;
 
-use crate::{
-    event_handlers::Handler,
-    framework::{Args, RegexFramework},
-    guild_data::{CtxGuildData, GuildData},
-    sound::Sound,
-};
+use std::{collections::HashMap, env, sync::Arc};
 
+use dashmap::DashMap;
+use dotenv::dotenv;
 use log::info;
-
 use serenity::{
     client::{bridge::gateway::GatewayIntents, Client, Context},
     http::Http,
@@ -27,18 +23,16 @@ use serenity::{
     },
     prelude::{Mutex, TypeMapKey},
 };
-
 use songbird::{create_player, error::JoinResult, tracks::TrackHandle, Call, SerenityInit};
-
 use sqlx::mysql::MySqlPool;
-
-use dotenv::dotenv;
-
-use dashmap::DashMap;
-
-use std::{collections::HashMap, env, sync::Arc};
-
 use tokio::sync::{MutexGuard, RwLock};
+
+use crate::{
+    event_handlers::Handler,
+    framework::{Args, RegexFramework},
+    guild_data::{CtxGuildData, GuildData},
+    sound::Sound,
+};
 
 struct MySQL;
 
@@ -97,9 +91,6 @@ async fn play_audio(
     }
 
     call_handler.play(track);
-
-    sound.plays += 1;
-    sound.commit(mysql_pool).await?;
 
     Ok(track_handler)
 }
@@ -268,7 +259,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // search commands
         .add_command(&cmds::search::LIST_SOUNDS_COMMAND)
         .add_command(&cmds::search::SEARCH_SOUNDS_COMMAND)
-        .add_command(&cmds::search::SHOW_POPULAR_SOUNDS_COMMAND)
         .add_command(&cmds::search::SHOW_RANDOM_SOUNDS_COMMAND);
 
     if audio_index.is_some() {
@@ -313,6 +303,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             data.insert::<AudioIndex>(Arc::new(audio_index));
         }
     }
+
+    framework_arc.build_slash(&client.cache_and_http.http).await;
 
     if let Ok((Some(lower), Some(upper))) = env::var("SHARD_RANGE").map(|sr| {
         let mut split = sr

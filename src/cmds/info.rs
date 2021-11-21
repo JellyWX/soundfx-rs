@@ -1,14 +1,12 @@
-use regex_command_attr::command;
+use std::{collections::HashMap, sync::Arc};
 
+use regex_command_attr::command;
 use serenity::{client::Context, framework::standard::CommandResult};
 
 use crate::{
-    framework::{Args, CommandInvoke, CreateGenericResponse, RegexFramework},
+    framework::{Args, CommandInvoke, CommandKind, CreateGenericResponse, RegexFramework},
     THEME_COLOR,
 };
-
-use crate::framework::CommandKind;
-use std::{collections::HashMap, sync::Arc};
 
 #[command]
 #[group("Information")]
@@ -147,7 +145,7 @@ pub async fn help(
                     CreateGenericResponse::new().embed(|e| {
                         e.title("Invalid Command")
                             .color(THEME_COLOR)
-                            .description("Type `/help command` to view help about a command below:")
+                            .description("Type `/help command` to view more about a command below:")
                             .fields(groups_iter)
                     }),
                 )
@@ -173,7 +171,10 @@ pub async fn help(
                 CreateGenericResponse::new().embed(|e| {
                     e.title("Help")
                         .color(THEME_COLOR)
-                        .description("Type `/help command` to view help about a command below:")
+                        .description("**Welcome to SoundFX!**
+To get started, upload a sound with `/upload`, or use `/search` and `/play` to look at some of the public sounds
+
+Type `/help command` to view help about a command below:")
                         .fields(groups_iter)
                 }),
             )

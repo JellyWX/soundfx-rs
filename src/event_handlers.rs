@@ -1,10 +1,4 @@
-use crate::{
-    framework::RegexFramework,
-    guild_data::CtxGuildData,
-    join_channel, play_audio, play_from_query,
-    sound::{JoinSoundCtx, Sound},
-    MySQL, ReqwestClient,
-};
+use std::{collections::HashMap, env};
 
 use serenity::{
     async_trait,
@@ -19,12 +13,15 @@ use serenity::{
     },
     utils::shard_id,
 };
-
 use songbird::{Event, EventContext, EventHandler as SongbirdEventHandler};
 
-use crate::framework::Args;
-
-use std::{collections::HashMap, env};
+use crate::{
+    framework::{Args, RegexFramework},
+    guild_data::CtxGuildData,
+    join_channel, play_audio, play_from_query,
+    sound::{JoinSoundCtx, Sound},
+    MySQL, ReqwestClient,
+};
 
 pub struct RestartTrack;
 
@@ -45,18 +42,6 @@ pub struct Handler;
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, _: Ready) {
         ctx.set_activity(Activity::watching("for /play")).await;
-    }
-
-    async fn cache_ready(&self, ctx: Context, _: Vec<GuildId>) {
-        let framework = ctx
-            .data
-            .read()
-            .await
-            .get::<RegexFramework>()
-            .cloned()
-            .expect("RegexFramework not found in context");
-
-        framework.build_slash(ctx).await;
     }
 
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
@@ -152,7 +137,7 @@ impl EventHandler for Handler {
                             let mut sound = sqlx::query_as_unchecked!(
                                 Sound,
                                 "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE id = ?
                                         ",

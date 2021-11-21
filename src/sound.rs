@@ -1,15 +1,12 @@
-use super::error::ErrorTypes;
-
-use sqlx::mysql::MySqlPool;
-
-use tokio::{fs::File, io::AsyncWriteExt, process::Command};
-
-use songbird::input::restartable::Restartable;
-
 use std::{env, path::Path};
 
-use crate::{JoinSoundCache, MySQL};
 use serenity::{async_trait, model::id::UserId, prelude::Context};
+use songbird::input::restartable::Restartable;
+use sqlx::mysql::MySqlPool;
+use tokio::{fs::File, io::AsyncWriteExt, process::Command};
+
+use super::error::ErrorTypes;
+use crate::{JoinSoundCache, MySQL};
 
 #[async_trait]
 pub trait JoinSoundCtx {
@@ -83,17 +80,15 @@ SELECT join_sound_id
 
         let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
 
-        if join_sound_cache.get(&user_id).is_none() {
-            let _ = sqlx::query!(
-                "
+        let _ = sqlx::query!(
+            "
 INSERT IGNORE INTO users (user)
     VALUES (?)
             ",
-                user_id.as_u64()
-            )
-            .execute(&pool)
-            .await;
-        }
+            user_id.as_u64()
+        )
+        .execute(&pool)
+        .await;
 
         let _ = sqlx::query!(
             "
@@ -115,10 +110,15 @@ WHERE
 pub struct Sound {
     pub name: String,
     pub id: u32,
-    pub plays: u32,
     pub public: bool,
     pub server_id: u64,
     pub uploader_id: Option<u64>,
+}
+
+impl PartialEq for Sound {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl Sound {
@@ -150,7 +150,7 @@ impl Sound {
             let sound = sqlx::query_as_unchecked!(
                 Self,
                 "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE id = ? AND (
         public = 1 OR
@@ -174,7 +174,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE name = ? AND (
         public = 1 OR
@@ -195,7 +195,7 @@ SELECT name, id, plays, public, server_id, uploader_id
                 sound = sqlx::query_as_unchecked!(
                     Self,
                     "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE name LIKE CONCAT('%', ?, '%') AND (
         public = 1 OR
@@ -310,12 +310,10 @@ SELECT COUNT(1) as count
             "
 UPDATE sounds
 SET
-    plays = ?,
     public = ?
 WHERE
     id = ?
             ",
-            self.plays,
             self.public,
             self.id
         )
@@ -407,14 +405,14 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
         }
     }
 
-    pub async fn get_user_sounds<U: Into<u64>>(
+    pub async fn user_sounds<U: Into<u64>>(
         user_id: U,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
             ",
@@ -426,14 +424,14 @@ SELECT name, id, plays, public, server_id, uploader_id
         Ok(sounds)
     }
 
-    pub async fn get_guild_sounds<G: Into<u64>>(
+    pub async fn guild_sounds<G: Into<u64>>(
         guild_id: G,
         db_pool: MySqlPool,
     ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
         let sounds = sqlx::query_as_unchecked!(
             Sound,
             "
-SELECT name, id, plays, public, server_id, uploader_id
+SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
             ",

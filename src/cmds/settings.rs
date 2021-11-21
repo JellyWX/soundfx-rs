@@ -1,5 +1,4 @@
 use regex_command_attr::command;
-
 use serenity::{client::Context, framework::standard::CommandResult};
 
 use crate::{
@@ -145,23 +144,21 @@ pub async fn change_prefix(
 
 #[command("roles")]
 #[required_permissions(Restricted)]
-#[kind(Text)]
 #[group("Settings")]
-#[description("Change the roles allowed to use the bot")]
+#[description("Change the role allowed to use the bot")]
 #[arg(
-    name = "roles",
-    kind = "String",
-    description = "The role mentions to enlist",
+    name = "role",
+    kind = "Role",
+    description = "A role to allow to use the bot. Use @everyone to allow all server members",
     required = true
 )]
+#[example("`/roles @everyone` - allow all server members to use the bot")]
+#[example("`/roles @DJ` - allow only server members with the 'DJ' role to use the bot")]
 pub async fn set_allowed_roles(
     ctx: &Context,
     invoke: &(dyn CommandInvoke + Sync + Send),
     args: Args,
 ) -> CommandResult {
-    let msg = invoke.msg().unwrap();
-    let guild_id = *msg.guild_id.unwrap().as_u64();
-
     let pool = ctx
         .data
         .read()
@@ -170,72 +167,18 @@ pub async fn set_allowed_roles(
         .cloned()
         .expect("Could not get SQLPool from data");
 
-    if args.is_empty() {
-        let roles = sqlx::query!(
-            "
-SELECT role
-    FROM roles
-    WHERE guild_id = ?
-            ",
-            guild_id
+    let role_id = args.named("role").unwrap().parse::<u64>().unwrap();
+    let guild_data = ctx.guild_data(invoke.guild_id().unwrap()).await.unwrap();
+
+    guild_data.write().await.allowed_role = Some(role_id);
+    guild_data.read().await.commit(pool).await?;
+
+    invoke
+        .respond(
+            ctx.http.clone(),
+            CreateGenericResponse::new().content(format!("Allowed role set to <@&{}>", role_id)),
         )
-        .fetch_all(&pool)
         .await?;
-
-        let all_roles = roles
-            .iter()
-            .map(|i| format!("<@&{}>", i.role.to_string()))
-            .collect::<Vec<String>>()
-            .join(", ");
-
-        msg.channel_id.say(&ctx, format!("Usage: `?roles <role mentions or anything else to disable>`. Current roles: {}", all_roles)).await?;
-    } else {
-        sqlx::query!(
-            "
-DELETE FROM roles
-    WHERE guild_id = ?
-            ",
-            guild_id
-        )
-        .execute(&pool)
-        .await?;
-
-        if msg.mention_roles.len() > 0 {
-            for role in msg.mention_roles.iter().map(|r| *r.as_u64()) {
-                sqlx::query!(
-                    "
-INSERT INTO roles (guild_id, role)
-    VALUES
-        (?, ?)
-                    ",
-                    guild_id,
-                    role
-                )
-                .execute(&pool)
-                .await?;
-            }
-
-            msg.channel_id
-                .say(&ctx, "Specified roles whitelisted")
-                .await?;
-        } else {
-            sqlx::query!(
-                "
-INSERT INTO roles (guild_id, role)
-    VALUES
-        (?, ?)
-                    ",
-                guild_id,
-                guild_id
-            )
-            .execute(&pool)
-            .await?;
-
-            msg.channel_id
-                .say(&ctx, "Role whitelisting disabled")
-                .await?;
-        }
-    }
 
     Ok(())
 }

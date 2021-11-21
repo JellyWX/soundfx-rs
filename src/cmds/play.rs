@@ -1,12 +1,12 @@
-use regex_command_attr::command;
+use std::{convert::TryFrom, time::Duration};
 
+use regex_command_attr::command;
 use serenity::{
     builder::CreateActionRow,
     client::Context,
     framework::standard::CommandResult,
     model::interactions::{message_component::ButtonStyle, InteractionResponseType},
 };
-
 use songbird::{
     create_player, ffmpeg,
     input::{cached::Memory, Input},
@@ -21,8 +21,6 @@ use crate::{
     sound::Sound,
     AudioIndex, MySQL,
 };
-
-use std::{convert::TryFrom, time::Duration};
 
 #[command]
 #[aliases("p")]
@@ -110,60 +108,78 @@ pub async fn play_ambience(
 
     match channel_to_join {
         Some(user_channel) => {
-            let search_name = args.named("name").unwrap().to_lowercase();
             let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
 
-            if let Some(filename) = audio_index.get(&search_name) {
-                let (track, track_handler) = create_player(
-                    Input::try_from(
-                        Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap()).unwrap(),
-                    )
-                    .unwrap(),
-                );
+            if let Some(search_name) = args.named("name") {
+                if let Some(filename) = audio_index.get(search_name) {
+                    let (track, track_handler) = create_player(
+                        Input::try_from(
+                            Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    );
 
-                let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
-                let guild_data = ctx.guild_data(guild).await.unwrap();
+                    let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
+                    let guild_data = ctx.guild_data(guild).await.unwrap();
 
-                {
-                    let mut lock = call_handler.lock().await;
+                    {
+                        let mut lock = call_handler.lock().await;
 
-                    lock.play(track);
+                        lock.play(track);
+                    }
+
+                    let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
+                    let _ = track_handler.add_event(
+                        Event::Periodic(
+                            track_handler.metadata().duration.unwrap() - Duration::from_millis(200),
+                            None,
+                        ),
+                        RestartTrack {},
+                    );
+
+                    invoke
+                        .respond(
+                            ctx.http.clone(),
+                            CreateGenericResponse::new()
+                                .content(format!("Playing ambience **{}**", search_name)),
+                        )
+                        .await?;
+                } else {
+                    invoke
+                        .respond(
+                            ctx.http.clone(),
+                            CreateGenericResponse::new().embed(|e| {
+                                e.title("Not Found").description(format!(
+                                    "Could not find ambience sound by name **{}**
+
+__Available ambience sounds:__
+{}",
+                                    search_name,
+                                    audio_index
+                                        .keys()
+                                        .into_iter()
+                                        .map(|i| i.as_str())
+                                        .collect::<Vec<&str>>()
+                                        .join("\n")
+                                ))
+                            }),
+                        )
+                        .await?;
                 }
-
-                let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
-                let _ = track_handler.add_event(
-                    Event::Periodic(
-                        track_handler.metadata().duration.unwrap() - Duration::from_millis(200),
-                        None,
-                    ),
-                    RestartTrack {},
-                );
-
-                invoke
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new()
-                            .content(format!("Playing ambience **{}**", search_name)),
-                    )
-                    .await?;
             } else {
                 invoke
                     .respond(
                         ctx.http.clone(),
                         CreateGenericResponse::new().embed(|e| {
-                            e.title("Not Found").description(format!(
-                                "Could not find ambience sound by name **{}**
-
-__Available ambience sounds:__
-{}",
-                                search_name,
+                            e.title("Available Sounds").description(
                                 audio_index
                                     .keys()
                                     .into_iter()
                                     .map(|i| i.as_str())
                                     .collect::<Vec<&str>>()
-                                    .join("\n")
-                            ))
+                                    .join("\n"),
+                            )
                         }),
                     )
                     .await?;
@@ -374,7 +390,9 @@ pub async fn soundboard(
         .await?;
 
         if let Some(sound) = search.first() {
-            sounds.push(sound.clone());
+            if !sounds.contains(sound) {
+                sounds.push(sound.clone());
+            }
         }
     }
 
