@@ -1,12 +1,12 @@
 use std::{env, path::Path};
 
-use serenity::{async_trait, model::id::UserId, prelude::Context};
+use poise::serenity::{async_trait, model::id::UserId};
 use songbird::input::restartable::Restartable;
 use sqlx::mysql::MySqlPool;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
 use super::error::ErrorTypes;
-use crate::{JoinSoundCache, MySQL};
+use crate::Data;
 
 #[async_trait]
 pub trait JoinSoundCtx {
@@ -19,22 +19,15 @@ pub trait JoinSoundCtx {
 }
 
 #[async_trait]
-impl JoinSoundCtx for Context {
+impl JoinSoundCtx for Data {
     async fn join_sound<U: Into<UserId> + Send + Sync>(&self, user_id: U) -> Option<u32> {
         let user_id = user_id.into();
-        let join_sound_cache = self
-            .data
-            .read()
-            .await
-            .get::<JoinSoundCache>()
-            .cloned()
-            .unwrap();
 
-        let x = if let Some(join_sound_id) = join_sound_cache.get(&user_id) {
+        let x = if let Some(join_sound_id) = self.join_sound_cache.get(&user_id) {
             join_sound_id.value().clone()
         } else {
             let join_sound_id = {
-                let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
+                let pool = self.database.clone();
 
                 let join_id_res = sqlx::query!(
                     "
@@ -54,7 +47,7 @@ SELECT join_sound_id
                 }
             };
 
-            join_sound_cache.insert(user_id, join_sound_id);
+            self.join_sound_cache.insert(user_id, join_sound_id);
 
             join_sound_id
         };
@@ -68,17 +61,10 @@ SELECT join_sound_id
         join_id: Option<u32>,
     ) {
         let user_id = user_id.into();
-        let join_sound_cache = self
-            .data
-            .read()
-            .await
-            .get::<JoinSoundCache>()
-            .cloned()
-            .unwrap();
 
-        join_sound_cache.insert(user_id, join_id);
+        self.join_sound_cache.insert(user_id, join_id);
 
-        let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
+        let pool = self.database.clone();
 
         let _ = sqlx::query!(
             "
@@ -260,10 +246,12 @@ SELECT src
             .expect("FFMPEG ERROR!"))
     }
 
-    pub async fn count_user_sounds(
-        user_id: u64,
+    pub async fn count_user_sounds<U: Into<u64>>(
+        user_id: U,
         db_pool: MySqlPool,
     ) -> Result<u32, sqlx::error::Error> {
+        let user_id = user_id.into();
+
         let c = sqlx::query!(
             "
 SELECT COUNT(1) as count
@@ -279,11 +267,13 @@ SELECT COUNT(1) as count
         Ok(c as u32)
     }
 
-    pub async fn count_named_user_sounds(
-        user_id: u64,
+    pub async fn count_named_user_sounds<U: Into<u64>>(
+        user_id: U,
         name: &String,
         db_pool: MySqlPool,
     ) -> Result<u32, sqlx::error::Error> {
+        let user_id = user_id.into();
+
         let c = sqlx::query!(
             "
 SELECT COUNT(1) as count
@@ -341,13 +331,16 @@ DELETE
         Ok(())
     }
 
-    pub async fn create_anon(
+    pub async fn create_anon<G: Into<u64>, U: Into<u64>>(
         name: &str,
         src_url: &str,
-        server_id: u64,
-        user_id: u64,
+        server_id: G,
+        user_id: U,
         db_pool: MySqlPool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + Send>> {
+        let server_id = server_id.into();
+        let user_id = user_id.into();
+
         async fn process_src(src_url: &str) -> Option<Vec<u8>> {
             let output = Command::new("ffmpeg")
                 .kill_on_drop(true)

@@ -4,65 +4,41 @@ extern crate lazy_static;
 mod cmds;
 mod error;
 mod event_handlers;
-mod framework;
 mod guild_data;
 mod sound;
 
-use std::{collections::HashMap, env, sync::Arc};
+use std::{env, sync::Arc};
 
 use dashmap::DashMap;
 use dotenv::dotenv;
-use log::info;
-use serenity::{
-    client::{bridge::gateway::GatewayIntents, Client, Context},
-    http::Http,
+use poise::serenity::{
+    builder::CreateApplicationCommands,
     model::{
         channel::Channel,
+        gateway::{Activity, GatewayIntents},
         guild::Guild,
         id::{ChannelId, GuildId, UserId},
     },
-    prelude::{Mutex, TypeMapKey},
 };
 use songbird::{create_player, error::JoinResult, tracks::TrackHandle, Call, SerenityInit};
 use sqlx::mysql::MySqlPool;
-use tokio::sync::{MutexGuard, RwLock};
+use tokio::sync::{Mutex, MutexGuard, RwLock};
 
 use crate::{
-    event_handlers::Handler,
-    framework::{Args, RegexFramework},
+    event_handlers::listener,
     guild_data::{CtxGuildData, GuildData},
     sound::Sound,
 };
 
-struct MySQL;
-
-impl TypeMapKey for MySQL {
-    type Value = MySqlPool;
+pub struct Data {
+    database: MySqlPool,
+    http: reqwest::Client,
+    guild_data_cache: DashMap<GuildId, Arc<RwLock<GuildData>>>,
+    join_sound_cache: DashMap<UserId, Option<u32>>,
 }
 
-struct ReqwestClient;
-
-impl TypeMapKey for ReqwestClient {
-    type Value = Arc<reqwest::Client>;
-}
-
-struct AudioIndex;
-
-impl TypeMapKey for AudioIndex {
-    type Value = Arc<HashMap<String, String>>;
-}
-
-struct GuildDataCache;
-
-impl TypeMapKey for GuildDataCache {
-    type Value = Arc<DashMap<GuildId, Arc<RwLock<GuildData>>>>;
-}
-
-struct JoinSoundCache;
-
-impl TypeMapKey for JoinSoundCache {
-    type Value = Arc<DashMap<UserId, Option<u32>>>;
-}
+type Error = Box<dyn std::error::Error + Send + Sync>;
+type Context<'a> = poise::Context<'a, Data, Error>;
 
 const THEME_COLOR: u32 = 0x00e0f3;
 
@@ -96,7 +72,7 @@ async fn play_audio(
 }
 
 async fn join_channel(
-    ctx: &Context,
+    ctx: &poise::serenity_prelude::Context,
     guild: Guild,
     channel_id: ChannelId,
 ) -> (Arc<Mutex<Call>>, JoinResult<()>) {
@@ -139,10 +115,10 @@ async fn join_channel(
 }
 
 async fn play_from_query(
-    ctx: &Context,
+    ctx: &Context<'_>,
     guild: Guild,
     user_id: UserId,
-    args: Args,
+    query: &str,
     loop_: bool,
 ) -> String {
     let guild_id = guild.id;
@@ -154,18 +130,10 @@ async fn play_from_query(
 
     match channel_to_join {
         Some(user_channel) => {
-            let search_term = args.named("query").unwrap();
-
-            let pool = ctx
-                .data
-                .read()
-                .await
-                .get::<MySQL>()
-                .cloned()
-                .expect("Could not get SQLPool from data");
+            let pool = ctx.data().database.clone();
 
             let mut sound_vec =
-                Sound::search_for_sound(search_term, guild_id, user_id, pool.clone(), true)
+                Sound::search_for_sound(query, guild_id, user_id, pool.clone(), true)
                     .await
                     .unwrap();
 
@@ -175,7 +143,7 @@ async fn play_from_query(
                 Some(sound) => {
                     {
                         let (call_handler, _) =
-                            join_channel(ctx, guild.clone(), user_channel).await;
+                            join_channel(ctx.discord(), guild.clone(), user_channel).await;
 
                         let guild_data = ctx.guild_data(guild_id).await.unwrap();
 
@@ -203,6 +171,36 @@ async fn play_from_query(
     }
 }
 
+pub async fn register_application_commands(
+    ctx: &poise::serenity::client::Context,
+    framework: &poise::Framework<Data, Error>,
+    guild_id: Option<GuildId>,
+) -> Result<(), poise::serenity::Error> {
+    let mut commands_builder = CreateApplicationCommands::default();
+    let commands = &framework.options().commands;
+    for command in commands {
+        if let Some(slash_command) = command.create_as_slash_command() {
+            commands_builder.add_application_command(slash_command);
+        }
+        if let Some(context_menu_command) = command.create_as_context_menu_command() {
+            commands_builder.add_application_command(context_menu_command);
+        }
+    }
+    let commands_builder = poise::serenity::json::Value::Array(commands_builder.0);
+
+    if let Some(guild_id) = guild_id {
+        ctx.http
+            .create_guild_application_commands(guild_id.0, &commands_builder)
+            .await?;
+    } else {
+        ctx.http
+            .create_global_application_commands(&commands_builder)
+            .await?;
+    }
+
+    Ok(())
+}
+
 // entry point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -210,141 +208,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     dotenv()?;
 
-    let token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");
+    let discord_token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");
 
-    let http = Http::new_with_token(&token);
-
-    let logged_in_id = http.get_current_user().await?.id;
-    let application_id = http.get_current_application_info().await?.id;
-
-    let audio_index = if let Ok(static_audio) = std::fs::read_to_string("audio/audio.json") {
-        if let Ok(json) = serde_json::from_str::<HashMap<String, String>>(&static_audio) {
-            Some(json)
-        } else {
-            println!(
-                "Invalid `audio.json` file. Not loading static audio or providing ambience command"
-            );
-
-            None
-        }
-    } else {
-        println!("No `audio.json` file. Not loading static audio or providing ambience command");
-
-        None
+    let options = poise::FrameworkOptions {
+        commands: vec![
+            cmds::info::info(),
+            cmds::manage::change_public(),
+            cmds::manage::upload_new_sound(),
+            cmds::manage::delete_sound(),
+            cmds::play::play(),
+            cmds::play::loop_play(),
+            cmds::play::soundboard(),
+        ],
+        allowed_mentions: None,
+        listener: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
+        ..Default::default()
     };
 
-    let mut framework = RegexFramework::new(logged_in_id)
-        .default_prefix("?")
-        .case_insensitive(true)
-        .ignore_bots(true)
-        // info commands
-        .add_command(&cmds::info::HELP_COMMAND)
-        .add_command(&cmds::info::INFO_COMMAND)
-        // play commands
-        .add_command(&cmds::play::LOOP_PLAY_COMMAND)
-        .add_command(&cmds::play::PLAY_COMMAND)
-        .add_command(&cmds::play::SOUNDBOARD_COMMAND)
-        .add_command(&cmds::stop::STOP_PLAYING_COMMAND)
-        .add_command(&cmds::stop::DISCONNECT_COMMAND)
-        // sound management commands
-        .add_command(&cmds::manage::UPLOAD_NEW_SOUND_COMMAND)
-        .add_command(&cmds::manage::DELETE_SOUND_COMMAND)
-        .add_command(&cmds::manage::CHANGE_PUBLIC_COMMAND)
-        // setting commands
-        .add_command(&cmds::settings::CHANGE_PREFIX_COMMAND)
-        .add_command(&cmds::settings::SET_ALLOWED_ROLES_COMMAND)
-        .add_command(&cmds::settings::CHANGE_VOLUME_COMMAND)
-        .add_command(&cmds::settings::ALLOW_GREET_SOUNDS_COMMAND)
-        .add_command(&cmds::settings::SET_GREET_SOUND_COMMAND)
-        // search commands
-        .add_command(&cmds::search::LIST_SOUNDS_COMMAND)
-        .add_command(&cmds::search::SEARCH_SOUNDS_COMMAND)
-        .add_command(&cmds::search::SHOW_RANDOM_SOUNDS_COMMAND);
+    let database = MySqlPool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
+        .await
+        .unwrap();
 
-    if audio_index.is_some() {
-        framework = framework.add_command(&cmds::play::PLAY_AMBIENCE_COMMAND);
-    }
+    poise::Framework::build()
+        .token(discord_token)
+        .user_data_setup(move |ctx, _bot, framework| {
+            Box::pin(async move {
+                ctx.set_activity(Activity::watching("for /play")).await;
 
-    framework = framework.build();
-
-    let framework_arc = Arc::new(framework);
-
-    let mut client =
-        Client::builder(&env::var("DISCORD_TOKEN").expect("Missing token from environment"))
-            .intents(
-                GatewayIntents::GUILD_VOICE_STATES
-                    | GatewayIntents::GUILD_MESSAGES
-                    | GatewayIntents::GUILDS,
-            )
-            .framework_arc(framework_arc.clone())
-            .application_id(application_id.0)
-            .event_handler(Handler)
-            .register_songbird()
-            .await
-            .expect("Error occurred creating client");
-
-    {
-        let mysql_pool =
-            MySqlPool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
+                register_application_commands(
+                    ctx,
+                    framework,
+                    env::var("DEBUG_GUILD")
+                        .map(|inner| GuildId(inner.parse().expect("DEBUG_GUILD not valid")))
+                        .ok(),
+                )
                 .await
                 .unwrap();
 
-        let guild_data_cache = Arc::new(DashMap::new());
-        let join_sound_cache = Arc::new(DashMap::new());
-        let mut data = client.data.write().await;
-
-        data.insert::<GuildDataCache>(guild_data_cache);
-        data.insert::<JoinSoundCache>(join_sound_cache);
-        data.insert::<MySQL>(mysql_pool);
-        data.insert::<RegexFramework>(framework_arc.clone());
-        data.insert::<ReqwestClient>(Arc::new(reqwest::Client::new()));
-
-        if let Some(audio_index) = audio_index {
-            data.insert::<AudioIndex>(Arc::new(audio_index));
-        }
-    }
-
-    framework_arc.build_slash(&client.cache_and_http.http).await;
-
-    if let Ok((Some(lower), Some(upper))) = env::var("SHARD_RANGE").map(|sr| {
-        let mut split = sr
-            .split(',')
-            .map(|val| val.parse::<u64>().expect("SHARD_RANGE not an integer"));
-
-        (split.next(), split.next())
-    }) {
-        let total_shards = env::var("SHARD_COUNT")
-            .map(|shard_count| shard_count.parse::<u64>().ok())
-            .ok()
-            .flatten()
-            .expect("No SHARD_COUNT provided, but SHARD_RANGE was provided");
-
-        assert!(
-            lower < upper,
-            "SHARD_RANGE lower limit is not less than the upper limit"
-        );
-
-        info!(
-            "Starting client fragment with shards {}-{}/{}",
-            lower, upper, total_shards
-        );
-
-        client
-            .start_shard_range([lower, upper], total_shards)
-            .await?;
-    } else if let Ok(total_shards) = env::var("SHARD_COUNT").map(|shard_count| {
-        shard_count
-            .parse::<u64>()
-            .expect("SHARD_COUNT not an integer")
-    }) {
-        info!("Starting client with {} shards", total_shards);
-
-        client.start_shards(total_shards).await?;
-    } else {
-        info!("Starting client as autosharded");
-
-        client.start_autosharded().await?;
-    }
+                Ok(Data {
+                    http: reqwest::Client::new(),
+                    database,
+                    guild_data_cache: Default::default(),
+                    join_sound_cache: Default::default(),
+                })
+            })
+        })
+        .options(options)
+        .client_settings(move |client_builder| {
+            client_builder
+                .intents(
+                    GatewayIntents::GUILD_VOICE_STATES
+                        | GatewayIntents::GUILD_MESSAGES
+                        | GatewayIntents::GUILDS,
+                )
+                .register_songbird()
+        })
+        .run_autosharded()
+        .await?;
 
     Ok(())
 }

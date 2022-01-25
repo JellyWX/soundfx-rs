@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use serenity::{async_trait, model::id::GuildId, prelude::Context};
+use poise::serenity::{async_trait, model::id::GuildId};
 use sqlx::mysql::MySqlPool;
 use tokio::sync::RwLock;
 
-use crate::{GuildDataCache, MySQL};
+use crate::{Context, Data};
 
 #[derive(Clone)]
 pub struct GuildData {
@@ -24,31 +24,33 @@ pub trait CtxGuildData {
 }
 
 #[async_trait]
-impl CtxGuildData for Context {
+impl CtxGuildData for Context<'_> {
+    async fn guild_data<G: Into<GuildId> + Send + Sync>(
+        &self,
+        guild_id: G,
+    ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error> {
+        self.data().guild_data(guild_id).await
+    }
+}
+
+#[async_trait]
+impl CtxGuildData for Data {
     async fn guild_data<G: Into<GuildId> + Send + Sync>(
         &self,
         guild_id: G,
     ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error> {
         let guild_id = guild_id.into();
 
-        let guild_cache = self
-            .data
-            .read()
-            .await
-            .get::<GuildDataCache>()
-            .cloned()
-            .unwrap();
-
-        let x = if let Some(guild_data) = guild_cache.get(&guild_id) {
+        let x = if let Some(guild_data) = self.guild_data_cache.get(&guild_id) {
             Ok(guild_data.clone())
         } else {
-            let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
+            let pool = self.database.clone();
 
             match GuildData::from_id(guild_id, pool).await {
                 Ok(d) => {
                     let lock = Arc::new(RwLock::new(d));
 
-                    guild_cache.insert(guild_id, lock.clone());
+                    self.guild_data_cache.insert(guild_id, lock.clone());
 
                     Ok(lock)
                 }

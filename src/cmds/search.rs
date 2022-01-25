@@ -1,11 +1,4 @@
-use regex_command_attr::command;
-use serenity::{client::Context, framework::standard::CommandResult};
-
-use crate::{
-    framework::{Args, CommandInvoke, CreateGenericResponse},
-    sound::Sound,
-    MySQL,
-};
+use crate::sound::Sound;
 
 fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
     let mut current_character_count = 0;
