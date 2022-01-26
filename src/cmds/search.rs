@@ -1,6 +1,13 @@
-use crate::sound::Sound;
+use poise::{serenity::constants::MESSAGE_CODE_LIMIT, CreateReply};
 
-fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
+use crate::{
+    models::sound::{Sound, SoundCtx},
+    Context, Error,
+};
+
+fn format_search_results<'a>(search_results: Vec<Sound>) -> CreateReply<'a> {
+    let mut builder = CreateReply::default();
+
     let mut current_character_count = 0;
     let title = "Public sounds matching filter:";
 
@@ -11,49 +18,25 @@ fn format_search_results(search_results: Vec<Sound>) -> CreateGenericResponse {
         .filter(|item| {
             current_character_count += item.0.len() + item.1.len();
 
-            current_character_count <= serenity::constants::MESSAGE_CODE_LIMIT - title.len()
+            current_character_count <= MESSAGE_CODE_LIMIT - title.len()
         });
 
-    CreateGenericResponse::new().embed(|e| e.title(title).fields(field_iter))
+    builder.embed(|e| e.title(title).fields(field_iter));
+
+    builder
 }
 
-#[command("list")]
-#[group("Search")]
-#[description("Show the sounds uploaded by you or to your server")]
-#[arg(
-    name = "me",
-    description = "Whether to list your sounds or server sounds (default: server)",
-    kind = "Boolean",
-    required = false
-)]
-#[example("`/list` - list sounds uploaded to the server you're in")]
-#[example("`/list [me: True]` - list sounds you have uploaded across all servers")]
-pub async fn list_sounds(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    let pool = ctx
-        .data
-        .read()
-        .await
-        .get::<MySQL>()
-        .cloned()
-        .expect("Could not get SQLPool from data");
-
+/// Show the sounds uploaded to this server
+#[poise::command(slash_command, rename = "list")]
+pub async fn list_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let sounds;
     let mut message_buffer;
 
-    if args.named("me").map(|i| i.to_owned()) == Some("me".to_string()) {
-        sounds = Sound::user_sounds(invoke.author_id(), pool).await?;
+    sounds = ctx.data().guild_sounds(ctx.guild_id().unwrap()).await?;
 
-        message_buffer = "All your sounds: ".to_string();
-    } else {
-        sounds = Sound::guild_sounds(invoke.guild_id().unwrap(), pool).await?;
+    message_buffer = "Sounds on this server: ".to_string();
 
-        message_buffer = "All sounds on this server: ".to_string();
-    }
-
+    // todo change this to iterator
     for sound in sounds {
         message_buffer.push_str(
             format!(
@@ -65,85 +48,77 @@ pub async fn list_sounds(
         );
 
         if message_buffer.len() > 2000 {
-            invoke
-                .respond(
-                    ctx.http.clone(),
-                    CreateGenericResponse::new().content(message_buffer),
-                )
-                .await?;
+            ctx.say(message_buffer).await?;
 
             message_buffer = "".to_string();
         }
     }
 
     if message_buffer.len() > 0 {
-        invoke
-            .respond(
-                ctx.http.clone(),
-                CreateGenericResponse::new().content(message_buffer),
-            )
-            .await?;
+        ctx.say(message_buffer).await?;
     }
 
     Ok(())
 }
 
-#[command("search")]
-#[group("Search")]
-#[description("Search for sounds")]
-#[arg(
-    name = "query",
-    kind = "String",
-    description = "Sound name to search for",
-    required = true
-)]
-pub async fn search_sounds(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    let pool = ctx
-        .data
-        .read()
-        .await
-        .get::<MySQL>()
-        .cloned()
-        .expect("Could not get SQLPool from data");
+/// Show all sounds you have uploaded
+#[poise::command(slash_command, rename = "me")]
+pub async fn list_user_sounds(ctx: Context<'_>) -> Result<(), Error> {
+    let sounds;
+    let mut message_buffer;
 
-    let query = args.named("query").unwrap();
+    sounds = ctx.data().user_sounds(ctx.author().id).await?;
 
-    let search_results = Sound::search_for_sound(
-        query,
-        invoke.guild_id().unwrap(),
-        invoke.author_id(),
-        pool,
-        false,
-    )
-    .await?;
+    message_buffer = "Sounds on this server: ".to_string();
 
-    invoke
-        .respond(ctx.http.clone(), format_search_results(search_results))
-        .await?;
+    // todo change this to iterator
+    for sound in sounds {
+        message_buffer.push_str(
+            format!(
+                "**{}** ({}), ",
+                sound.name,
+                if sound.public { "🔓" } else { "🔒" }
+            )
+            .as_str(),
+        );
+
+        if message_buffer.len() > 2000 {
+            ctx.say(message_buffer).await?;
+
+            message_buffer = "".to_string();
+        }
+    }
+
+    if message_buffer.len() > 0 {
+        ctx.say(message_buffer).await?;
+    }
 
     Ok(())
 }
 
-#[command("random")]
-#[group("Search")]
-#[description("Show a page of random sounds")]
-pub async fn show_random_sounds(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    _args: Args,
-) -> CommandResult {
-    let pool = ctx
-        .data
-        .read()
-        .await
-        .get::<MySQL>()
-        .cloned()
-        .expect("Could not get SQLPool from data");
+/// Search for sounds
+#[poise::command(slash_command, rename = "search", category = "Search")]
+pub async fn search_sounds(
+    ctx: Context<'_>,
+    #[description = "Sound name to search for"] query: String,
+) -> Result<(), Error> {
+    let search_results = ctx
+        .data()
+        .search_for_sound(&query, ctx.guild_id().unwrap(), ctx.author().id, false)
+        .await?;
 
+    ctx.send(|m| {
+        *m = format_search_results(search_results);
+        m
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// Show a page of random sounds
+#[poise::command(slash_command, rename = "random")]
+pub async fn show_random_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let search_results = sqlx::query_as_unchecked!(
         Sound,
         "
@@ -154,13 +129,14 @@ SELECT name, id, public, server_id, uploader_id
     LIMIT 25
         "
     )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    .fetch_all(&ctx.data().database)
+    .await?;
 
-    invoke
-        .respond(ctx.http.clone(), format_search_results(search_results))
-        .await?;
+    ctx.send(|m| {
+        *m = format_search_results(search_results);
+        m
+    })
+    .await?;
 
     Ok(())
 }

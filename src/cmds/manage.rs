@@ -1,8 +1,14 @@
 use std::time::Duration;
 
 use poise::serenity::model::id::{GuildId, RoleId};
+use tokio::fs::File;
 
-use crate::{sound::Sound, Context, Error, MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE};
+use crate::{
+    cmds::autocomplete_sound,
+    consts::{MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE},
+    models::sound::{Sound, SoundCtx},
+    Context, Error,
+};
 
 /// Upload a new sound to the bot
 #[poise::command(slash_command, rename = "upload", category = "Manage")]
@@ -123,14 +129,16 @@ pub async fn upload_new_sound(
 #[poise::command(slash_command, rename = "delete", category = "Manage")]
 pub async fn delete_sound(
     ctx: Context<'_>,
-    #[description = "Name or ID of sound to delete"] name: String,
+    #[description = "Name or ID of sound to delete"]
+    #[autocomplete = "autocomplete_sound"]
+    name: String,
 ) -> Result<(), Error> {
     let pool = ctx.data().database.clone();
 
     let uid = ctx.author().id.0;
     let gid = ctx.guild_id().unwrap().0;
 
-    let sound_vec = Sound::search_for_sound(&name, gid, uid, pool.clone(), true).await?;
+    let sound_vec = ctx.data().search_for_sound(&name, gid, uid, true).await?;
     let sound_result = sound_vec.first();
 
     match sound_result {
@@ -174,14 +182,16 @@ pub async fn delete_sound(
 #[poise::command(slash_command, rename = "public", category = "Manage")]
 pub async fn change_public(
     ctx: Context<'_>,
-    #[description = "Name or ID of sound to change privacy setting of"] name: String,
+    #[description = "Name or ID of sound to change privacy setting of"]
+    #[autocomplete = "autocomplete_sound"]
+    name: String,
 ) -> Result<(), Error> {
     let pool = ctx.data().database.clone();
 
     let uid = ctx.author().id.0;
     let gid = ctx.guild_id().unwrap().0;
 
-    let mut sound_vec = Sound::search_for_sound(&name, gid, uid, pool.clone(), true).await?;
+    let mut sound_vec = ctx.data().search_for_sound(&name, gid, uid, true).await?;
     let sound_result = sound_vec.first_mut();
 
     match sound_result {
@@ -205,6 +215,42 @@ pub async fn change_public(
 
         None => {
             ctx.say("Sound could not be found by that name.").await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Download a sound file from the bot
+#[poise::command(slash_command, rename = "download", category = "Manage")]
+pub async fn download_file(
+    ctx: Context<'_>,
+    #[description = "Name or ID of sound to download"]
+    #[autocomplete = "autocomplete_sound"]
+    name: String,
+) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    let sound = ctx
+        .data()
+        .search_for_sound(&name, ctx.guild_id().unwrap(), ctx.author().id, true)
+        .await?;
+
+    match sound.first() {
+        Some(sound) => {
+            let source = sound
+                .store_sound_source(ctx.data().database.clone())
+                .await?;
+
+            let file = File::open(&source).await?;
+            let name = format!("{}-{}.opus", sound.id, sound.name);
+
+            ctx.send(|m| m.attachment((&file, name.as_str()).into()))
+                .await?;
+        }
+
+        None => {
+            ctx.say("No sound found by specified name/ID").await?;
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::{Context, Error, THEME_COLOR};
+use crate::{consts::THEME_COLOR, Context, Error};
 
 /// Get additional information about the bot
 #[poise::command(slash_command, category = "Information")]

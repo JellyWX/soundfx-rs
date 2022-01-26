@@ -1,27 +1,19 @@
 use std::{collections::HashMap, env};
 
-use poise::serenity::{async_trait, model::channel::Channel, prelude::Context, utils::shard_id};
-use songbird::{Event, EventContext, EventHandler as SongbirdEventHandler};
-
-use crate::{
-    guild_data::CtxGuildData,
-    join_channel, play_audio,
-    sound::{JoinSoundCtx, Sound},
-    Data, Error,
+use poise::serenity::{
+    model::{
+        channel::Channel,
+        interactions::{Interaction, InteractionResponseType},
+    },
+    prelude::Context,
+    utils::shard_id,
 };
 
-pub struct RestartTrack;
-
-#[async_trait]
-impl SongbirdEventHandler for RestartTrack {
-    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
-        if let EventContext::Track(&[(_state, track)]) = ctx {
-            let _ = track.seek_time(Default::default());
-        }
-
-        None
-    }
-}
+use crate::{
+    models::{guild_data::CtxGuildData, join_sound::JoinSoundCtx, sound::Sound},
+    utils::{join_channel, play_audio, play_from_query},
+    Data, Error,
+};
 
 pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> Result<(), Error> {
     match event {
@@ -126,6 +118,29 @@ SELECT name, id, public, server_id, uploader_id
                 }
             }
         }
+        poise::Event::InteractionCreate { interaction } => match interaction {
+            Interaction::MessageComponent(component) => {
+                if component.guild_id.is_some() {
+                    play_from_query(
+                        &ctx,
+                        &data,
+                        component.guild_id.unwrap().to_guild_cached(&ctx).unwrap(),
+                        component.user.id,
+                        &component.data.custom_id,
+                        false,
+                    )
+                    .await;
+
+                    component
+                        .create_interaction_response(ctx, |r| {
+                            r.kind(InteractionResponseType::DeferredUpdateMessage)
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
+            _ => {}
+        },
         _ => {}
     }
 
