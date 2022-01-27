@@ -26,9 +26,15 @@ fn format_search_results<'a>(search_results: Vec<Sound>) -> CreateReply<'a> {
     builder
 }
 
-/// Show the sounds uploaded to this server
+/// Show uploaded sounds
 #[poise::command(slash_command, rename = "list")]
-pub async fn list_sounds(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn list_sounds(_ctx: Context<'_>) -> Result<(), Error> {
+    Ok(())
+}
+
+/// Show the sounds uploaded to this server
+#[poise::command(slash_command, rename = "server")]
+pub async fn list_guild_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let sounds;
     let mut message_buffer;
 
@@ -62,7 +68,7 @@ pub async fn list_sounds(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show all sounds you have uploaded
-#[poise::command(slash_command, rename = "me")]
+#[poise::command(slash_command, rename = "user")]
 pub async fn list_user_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let sounds;
     let mut message_buffer;

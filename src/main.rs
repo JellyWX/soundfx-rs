@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let options = poise::FrameworkOptions {
         commands: vec![
+            cmds::info::help(),
             cmds::info::info(),
             cmds::manage::change_public(),
             cmds::manage::upload_new_sound(),
@@ -84,8 +85,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cmds::play::play(),
             cmds::play::loop_play(),
             cmds::play::soundboard(),
-            cmds::search::list_sounds(),
-            cmds::search::list_user_sounds(),
+            poise::Command {
+                subcommands: vec![
+                    cmds::search::list_guild_sounds(),
+                    cmds::search::list_user_sounds(),
+                ],
+                ..cmds::search::list_sounds()
+            },
             cmds::search::show_random_sounds(),
             cmds::search::search_sounds(),
             cmds::stop::stop_playing(),
@@ -97,7 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     cmds::settings::enable_greet_sound(),
                     cmds::settings::set_greet_sound(),
                     cmds::settings::unset_greet_sound(),
-                    cmds::settings::greet_sound(),
                 ],
                 ..cmds::settings::greet_sound()
             },
