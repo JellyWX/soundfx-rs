@@ -5,7 +5,7 @@ use tokio::fs::File;
 
 use crate::{
     cmds::autocomplete_sound,
-    consts::{MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE},
+    consts::{MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE, UPLOAD_MAX_SIZE},
     models::sound::{Sound, SoundCtx},
     Context, Error,
 };
@@ -59,7 +59,7 @@ pub async fn upload_new_sound(
 
                 if permit_upload {
                     let attachment = {
-                        ctx.say("Please now upload an audio file under 1MB in size (larger files will be automatically trimmed):").await?;
+                        ctx.say(format!("Please now upload an audio file under {}MB in size (larger files will be automatically trimmed):", *UPLOAD_MAX_SIZE / (1024u64.pow(2)))).await?;
 
                         let reply = ctx
                             .channel_id()

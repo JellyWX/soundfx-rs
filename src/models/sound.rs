@@ -5,7 +5,7 @@ use songbird::input::restartable::Restartable;
 use sqlx::{mysql::MySqlPool, Error};
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
-use crate::{error::ErrorTypes, Data};
+use crate::{consts::UPLOAD_MAX_SIZE, error::ErrorTypes, Data};
 
 #[derive(Clone)]
 pub struct Sound {
@@ -361,12 +361,10 @@ DELETE
                 .arg(src_url)
                 .arg("-loglevel")
                 .arg("error")
-                .arg("-b:a")
-                .arg("28000")
                 .arg("-f")
                 .arg("opus")
                 .arg("-fs")
-                .arg("1048576")
+                .arg(UPLOAD_MAX_SIZE.to_string())
                 .arg("pipe:1")
                 .output()
                 .await;
