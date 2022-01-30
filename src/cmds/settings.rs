@@ -15,11 +15,7 @@ pub async fn change_volume(
     if let Some(volume) = volume {
         guild_data.write().await.volume = volume as u8;
 
-        guild_data
-            .read()
-            .await
-            .commit(ctx.data().database.clone())
-            .await?;
+        guild_data.read().await.commit(&ctx.data().database).await?;
 
         ctx.say(format!("Volume changed to {}%", volume)).await?;
     } else {
@@ -91,11 +87,7 @@ pub async fn disable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     if let Ok(guild_data) = guild_data_opt {
         guild_data.write().await.allow_greets = false;
 
-        guild_data
-            .read()
-            .await
-            .commit(ctx.data().database.clone())
-            .await?;
+        guild_data.read().await.commit(&ctx.data().database).await?;
     }
 
     ctx.say("Greet sounds have been disabled in this server")
@@ -112,11 +104,7 @@ pub async fn enable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     if let Ok(guild_data) = guild_data_opt {
         guild_data.write().await.allow_greets = true;
 
-        guild_data
-            .read()
-            .await
-            .commit(ctx.data().database.clone())
-            .await?;
+        guild_data.read().await.commit(&ctx.data().database).await?;
     }
 
     ctx.say("Greet sounds have been enable in this server")

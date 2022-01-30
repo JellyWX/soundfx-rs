@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use poise::serenity::{async_trait, model::id::GuildId};
-use sqlx::mysql::MySqlPool;
+use sqlx::Executor;
 use tokio::sync::RwLock;
 
-use crate::{Context, Data};
+use crate::{Context, Data, Database};
 
 #[derive(Clone)]
 pub struct GuildData {
@@ -44,9 +44,7 @@ impl CtxGuildData for Data {
         let x = if let Some(guild_data) = self.guild_data_cache.get(&guild_id) {
             Ok(guild_data.clone())
         } else {
-            let pool = self.database.clone();
-
-            match GuildData::from_id(guild_id, pool).await {
+            match GuildData::from_id(guild_id, &self.database).await {
                 Ok(d) => {
                     let lock = Arc::new(RwLock::new(d));
 
@@ -66,7 +64,7 @@ impl CtxGuildData for Data {
 impl GuildData {
     pub async fn from_id<G: Into<GuildId>>(
         guild_id: G,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database> + Copy,
     ) -> Result<GuildData, sqlx::Error> {
         let guild_id = guild_id.into();
 
@@ -79,7 +77,7 @@ SELECT id, prefix, volume, allow_greets, allowed_role
             ",
             guild_id.as_u64()
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await;
 
         match guild_data {
@@ -93,7 +91,7 @@ SELECT id, prefix, volume, allow_greets, allowed_role
 
     async fn create_from_guild<G: Into<GuildId>>(
         guild_id: G,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<GuildData, sqlx::Error> {
         let guild_id = guild_id.into();
 
@@ -104,7 +102,7 @@ INSERT INTO servers (id)
             ",
             guild_id.as_u64()
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(GuildData {
@@ -118,7 +116,7 @@ INSERT INTO servers (id)
 
     pub async fn commit(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -137,7 +135,7 @@ WHERE
             self.allowed_role,
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())

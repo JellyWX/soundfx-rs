@@ -20,13 +20,16 @@ use poise::serenity::{
     },
 };
 use songbird::SerenityInit;
-use sqlx::mysql::MySqlPool;
+use sqlx::{MySql, Pool};
 use tokio::sync::RwLock;
 
 use crate::{event_handlers::listener, models::guild_data::GuildData};
 
+// Which database driver are we using?
+type Database = MySql;
+
 pub struct Data {
-    database: MySqlPool,
+    database: Pool<Database>,
     http: reqwest::Client,
     guild_data_cache: DashMap<GuildId, Arc<RwLock<GuildData>>>,
     join_sound_cache: DashMap<UserId, Option<u32>>,
@@ -112,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ..Default::default()
     };
 
-    let database = MySqlPool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
+    let database = Pool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
         .await
         .unwrap();
 

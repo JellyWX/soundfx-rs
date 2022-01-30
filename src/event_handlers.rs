@@ -72,8 +72,6 @@ pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> R
                 }
             } else if let (Some(guild_id), Some(user_channel)) = (new.guild_id, new.channel_id) {
                 if let Some(guild) = ctx.cache.guild(guild_id) {
-                    let pool = data.database.clone();
-
                     let guild_data_opt = data.guild_data(guild.id).await;
 
                     if let Ok(guild_data) = guild_data_opt {
@@ -98,7 +96,7 @@ SELECT name, id, public, server_id, uploader_id
                                         ",
                                     join_id
                                 )
-                                .fetch_one(&pool)
+                                .fetch_one(&data.database)
                                 .await
                                 .unwrap();
 
@@ -108,7 +106,7 @@ SELECT name, id, public, server_id, uploader_id
                                     &mut sound,
                                     volume,
                                     &mut handler.lock().await,
-                                    pool,
+                                    &data.database,
                                     false,
                                 )
                                 .await;

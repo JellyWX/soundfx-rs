@@ -6,7 +6,7 @@ use poise::serenity::model::{
     id::{ChannelId, UserId},
 };
 use songbird::{create_player, error::JoinResult, tracks::TrackHandle, Call};
-use sqlx::MySqlPool;
+use sqlx::Executor;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
@@ -14,17 +14,17 @@ use crate::{
         guild_data::CtxGuildData,
         sound::{Sound, SoundCtx},
     },
-    Data,
+    Data, Database,
 };
 
 pub async fn play_audio(
     sound: &mut Sound,
     volume: u8,
     call_handler: &mut MutexGuard<'_, Call>,
-    mysql_pool: MySqlPool,
+    db_pool: impl Executor<'_, Database = Database>,
     loop_: bool,
 ) -> Result<TrackHandle, Box<dyn std::error::Error + Send + Sync>> {
-    let (track, track_handler) = create_player(sound.playable(mysql_pool.clone()).await?.into());
+    let (track, track_handler) = create_player(sound.playable(db_pool).await?.into());
 
     let _ = track_handler.set_volume(volume as f32 / 100.0);
 
@@ -99,8 +99,6 @@ pub async fn play_from_query(
 
     match channel_to_join {
         Some(user_channel) => {
-            let pool = data.database.clone();
-
             let mut sound_vec = data
                 .search_for_sound(query, guild_id, user_id, true)
                 .await
@@ -122,7 +120,7 @@ pub async fn play_from_query(
                             sound,
                             guild_data.read().await.volume,
                             &mut lock,
-                            pool,
+                            &data.database,
                             loop_,
                         )
                         .await

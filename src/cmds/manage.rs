@@ -29,11 +29,10 @@ pub async fn upload_new_sound(
 
     if !name.is_empty() && name.len() <= 20 {
         if !is_numeric(&name) {
-            let pool = ctx.data().database.clone();
-
             // need to check the name is not currently in use by the user
             let count_name =
-                Sound::count_named_user_sounds(ctx.author().id, &name, pool.clone()).await?;
+                Sound::count_named_user_sounds(ctx.author().id, &name, &ctx.data().database)
+                    .await?;
             if count_name > 0 {
                 ctx.say(
                     "You are already using that name. Please choose a unique name for your upload.",
@@ -41,7 +40,7 @@ pub async fn upload_new_sound(
                 .await?;
             } else {
                 // need to check how many sounds user currently has
-                let count = Sound::count_user_sounds(ctx.author().id, pool.clone()).await?;
+                let count = Sound::count_user_sounds(ctx.author().id, &ctx.data().database).await?;
                 let mut permit_upload = true;
 
                 // need to check if user is patreon or nah
@@ -93,7 +92,7 @@ pub async fn upload_new_sound(
                             url.as_str(),
                             ctx.guild_id().unwrap(),
                             ctx.author().id,
-                            pool,
+                            &ctx.data().database,
                         )
                         .await
                         {
@@ -160,7 +159,7 @@ pub async fn delete_sound(
                 };
 
                 if sound.uploader_id == Some(uid) || has_perms {
-                    sound.delete(pool).await?;
+                    sound.delete(&pool).await?;
 
                     ctx.say("Sound has been deleted").await?;
                 } else {
@@ -209,7 +208,7 @@ pub async fn change_public(
                     ctx.say("Sound has been set to public 🔓").await?;
                 }
 
-                sound.commit(pool).await?
+                sound.commit(&pool).await?
             }
         }
 
@@ -238,9 +237,7 @@ pub async fn download_file(
 
     match sound.first() {
         Some(sound) => {
-            let source = sound
-                .store_sound_source(ctx.data().database.clone())
-                .await?;
+            let source = sound.store_sound_source(&ctx.data().database).await?;
 
             let file = File::open(&source).await?;
             let name = format!("{}-{}.opus", sound.id, sound.name);

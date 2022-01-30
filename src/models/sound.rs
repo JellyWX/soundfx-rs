@@ -2,10 +2,10 @@ use std::{env, path::Path};
 
 use poise::serenity::async_trait;
 use songbird::input::restartable::Restartable;
-use sqlx::{mysql::MySqlPool, Error};
+use sqlx::{Error, Executor};
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
-use crate::{consts::UPLOAD_MAX_SIZE, error::ErrorTypes, Data};
+use crate::{consts::UPLOAD_MAX_SIZE, error::ErrorTypes, Data, Database};
 
 #[derive(Clone)]
 pub struct Sound {
@@ -208,7 +208,7 @@ SELECT name, id, public, server_id, uploader_id
 }
 
 impl Sound {
-    async fn src(&self, db_pool: MySqlPool) -> Vec<u8> {
+    async fn src(&self, db_pool: impl Executor<'_, Database = Database>) -> Vec<u8> {
         struct Src {
             src: Vec<u8>,
         }
@@ -223,7 +223,7 @@ SELECT src
             ",
             self.id
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await
         .unwrap();
 
@@ -232,7 +232,7 @@ SELECT src
 
     pub async fn store_sound_source(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
@@ -250,7 +250,7 @@ SELECT src
 
     pub async fn playable(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<Restartable, Box<dyn std::error::Error + Send + Sync>> {
         let path_name = self.store_sound_source(db_pool).await?;
 
@@ -261,7 +261,7 @@ SELECT src
 
     pub async fn count_user_sounds<U: Into<u64>>(
         user_id: U,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<u32, sqlx::error::Error> {
         let user_id = user_id.into();
 
@@ -273,7 +273,7 @@ SELECT COUNT(1) as count
         ",
             user_id
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await?
         .count;
 
@@ -283,7 +283,7 @@ SELECT COUNT(1) as count
     pub async fn count_named_user_sounds<U: Into<u64>>(
         user_id: U,
         name: &String,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<u32, sqlx::error::Error> {
         let user_id = user_id.into();
 
@@ -298,7 +298,7 @@ SELECT COUNT(1) as count
             user_id,
             name
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await?
         .count;
 
@@ -307,7 +307,7 @@ SELECT COUNT(1) as count
 
     pub async fn commit(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -320,7 +320,7 @@ WHERE
             self.public,
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())
@@ -328,7 +328,7 @@ WHERE
 
     pub async fn delete(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -338,7 +338,7 @@ DELETE
             ",
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())
@@ -349,7 +349,7 @@ DELETE
         src_url: &str,
         server_id: G,
         user_id: U,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + Send>> {
         let server_id = server_id.into();
         let user_id = user_id.into();
@@ -396,7 +396,7 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
                     user_id,
                     data
                 )
-                .execute(&db_pool)
+                .execute(db_pool)
                 .await
                 {
                     Ok(_) => Ok(()),

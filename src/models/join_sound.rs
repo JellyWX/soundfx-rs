@@ -21,8 +21,6 @@ impl JoinSoundCtx for Data {
             join_sound_id.value().clone()
         } else {
             let join_sound_id = {
-                let pool = self.database.clone();
-
                 let join_id_res = sqlx::query!(
                     "
 SELECT join_sound_id
@@ -31,7 +29,7 @@ SELECT join_sound_id
                     ",
                     user_id.as_u64()
                 )
-                .fetch_one(&pool)
+                .fetch_one(&self.database)
                 .await;
 
                 if let Ok(row) = join_id_res {
