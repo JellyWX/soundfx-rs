@@ -6,19 +6,21 @@ efficient and robust package. SoundFX 2 is as asynchronous as it can get, and ru
 
 ### Building
 
-Use the Cargo.toml file to build it. Simple as. Don't need anything like MySQL libs and stuff because SQLx includes its 
-own pure Rust one. Needs Rust 1.43+
+Run the migrations in the `migrations` directory to set up the database.
+
+Use Cargo to build the executable.
 
 ### Running & Config
 
-The bot connects to the MySQL server URL defined in a `.env` file in the working directory of the program.
+The bot connects to the MySQL server URL defined in the environment.
 
-Config options:
+Environment variables read:
 * `DISCORD_TOKEN`- your token (required)
 * `DATABASE_URL`- your database URL (required)
-* `DISCONNECT_CYCLES`- specifies the number of inactivity cycles before the bot should disconnect itself from a voice channel
-* `DISCONNECT_CYCLE_DELAY`- specifies the delay between cleanup cycles
+* `UPLOAD_MAX_SIZE`- specifies the maximum file size to allow in bytes (defaults to 2097152 (2MB))
 * `MAX_SOUNDS`- specifies how many sounds a user should be allowed without Patreon
 * `PATREON_GUILD`- specifies the ID of the guild being used for Patreon benefits
 * `PATREON_ROLE`- specifies the role being checked for Patreon benefits
 * `CACHING_LOCATION`- specifies the location in which to cache the audio files (defaults to `/tmp/`)
+
+The bot will also consider variables in a `.env` file in the working directory.
