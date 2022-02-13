@@ -102,14 +102,15 @@ SELECT name, id, public, server_id, uploader_id
 
                                 let (handler, _) = join_channel(&ctx, guild, user_channel).await;
 
-                                let _ = play_audio(
+                                play_audio(
                                     &mut sound,
                                     volume,
                                     &mut handler.lock().await,
                                     &data.database,
                                     false,
                                 )
-                                .await;
+                                .await
+                                .unwrap();
                             }
                         }
                     }

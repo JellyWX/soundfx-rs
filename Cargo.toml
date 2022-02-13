@@ -5,7 +5,7 @@ authors = ["jellywx <judesouthworth@pm.me>"]
 edition = "2018"
 
 [dependencies]
-songbird = { git = "https://github.com/serenity-rs/songbird", branch = "next" }
+songbird = { git = "https://github.com/serenity-rs/songbird", branch = "next", features = ["builtin-queue"] }
 poise = { git = "https://github.com/kangalioo/poise", branch = "master", features = ["collector"] }
 sqlx = { version = "0.5", default-features = false, features = ["runtime-tokio-rustls", "macros", "mysql", "bigdecimal"] }
 dotenv = "0.15"

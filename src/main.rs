@@ -86,6 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cmds::manage::download_file(),
             cmds::manage::delete_sound(),
             cmds::play::play(),
+            cmds::play::queue_play(),
             cmds::play::loop_play(),
             cmds::play::soundboard(),
             poise::Command {

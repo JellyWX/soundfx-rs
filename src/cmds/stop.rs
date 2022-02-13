@@ -2,7 +2,7 @@ use songbird;
 
 use crate::{Context, Error};
 
-/// Stop the bot from playing
+/// Stop the bot from playing and clear the play queue
 #[poise::command(slash_command, rename = "stop")]
 pub async fn stop_playing(ctx: Context<'_>) -> Result<(), Error> {
     let songbird = songbird::get(ctx.discord()).await.unwrap();

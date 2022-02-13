@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub async fn play_audio(
-    sound: &mut Sound,
+    sound: &Sound,
     volume: u8,
     call_handler: &mut MutexGuard<'_, Call>,
     db_pool: impl Executor<'_, Database = Database>,
@@ -37,6 +37,23 @@ pub async fn play_audio(
     call_handler.play(track);
 
     Ok(track_handler)
+}
+
+pub async fn queue_audio(
+    sounds: &[Sound],
+    volume: u8,
+    call_handler: &mut MutexGuard<'_, Call>,
+    db_pool: impl Executor<'_, Database = Database> + Copy,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    for sound in sounds {
+        let (a, b) = create_player(sound.playable(db_pool).await?.into());
+
+        let _ = b.set_volume(volume as f32 / 100.0);
+
+        call_handler.enqueue(a);
+    }
+
+    Ok(())
 }
 
 pub async fn join_channel(
