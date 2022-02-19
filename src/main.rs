@@ -147,11 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .options(options)
         .client_settings(move |client_builder| {
             client_builder
-                .intents(
-                    GatewayIntents::GUILD_VOICE_STATES
-                        | GatewayIntents::GUILD_MESSAGES
-                        | GatewayIntents::GUILDS,
-                )
+                .intents(GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILDS)
                 .register_songbird()
         })
         .run_autosharded()

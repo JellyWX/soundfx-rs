@@ -1,11 +1,9 @@
-use std::time::Duration;
-
-use poise::serenity::model::id::{GuildId, RoleId};
+use poise::serenity_prelude::{Attachment, GuildId, RoleId};
 use tokio::fs::File;
 
 use crate::{
     cmds::autocomplete_sound,
-    consts::{MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE, UPLOAD_MAX_SIZE},
+    consts::{MAX_SOUNDS, PATREON_GUILD, PATREON_ROLE},
     models::sound::{Sound, SoundCtx},
     Context, Error,
 };
@@ -15,6 +13,7 @@ use crate::{
 pub async fn upload_new_sound(
     ctx: Context<'_>,
     #[description = "Name to upload sound to"] name: String,
+    #[description = "Sound file (max. 2MB)"] file: Attachment,
 ) -> Result<(), Error> {
     fn is_numeric(s: &String) -> bool {
         for char in s.chars() {
@@ -57,53 +56,22 @@ pub async fn upload_new_sound(
                 }
 
                 if permit_upload {
-                    let attachment = {
-                        ctx.say(format!("Please now upload an audio file under {}MB in size (larger files will be automatically trimmed):", *UPLOAD_MAX_SIZE / (1024u64.pow(2)))).await?;
-
-                        let reply = ctx
-                            .channel_id()
-                            .await_reply(&ctx.discord())
-                            .author_id(ctx.author().id)
-                            .timeout(Duration::from_secs(120))
-                            .await;
-
-                        match reply {
-                            Some(reply_msg) => {
-                                if let Some(attachment) = reply_msg.attachments.get(0) {
-                                    Some(attachment.url.clone())
-                                } else {
-                                    ctx.say("Please upload 1 attachment following your upload command. Aborted").await?;
-
-                                    None
-                                }
-                            }
-
-                            None => {
-                                ctx.say("Upload timed out. Please redo the command").await?;
-
-                                None
-                            }
+                    match Sound::create_anon(
+                        &name,
+                        file.url.as_str(),
+                        ctx.guild_id().unwrap(),
+                        ctx.author().id,
+                        &ctx.data().database,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            ctx.say("Sound has been uploaded").await?;
                         }
-                    };
 
-                    if let Some(url) = attachment {
-                        match Sound::create_anon(
-                            &name,
-                            url.as_str(),
-                            ctx.guild_id().unwrap(),
-                            ctx.author().id,
-                            &ctx.data().database,
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                ctx.say("Sound has been uploaded").await?;
-                            }
-
-                            Err(e) => {
-                                println!("Error occurred during upload: {:?}", e);
-                                ctx.say("Sound failed to upload.").await?;
-                            }
+                        Err(e) => {
+                            println!("Error occurred during upload: {:?}", e);
+                            ctx.say("Sound failed to upload.").await?;
                         }
                     }
                 } else {
