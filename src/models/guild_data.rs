@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use serenity::{async_trait, model::id::GuildId, prelude::Context};
-use sqlx::mysql::MySqlPool;
+use poise::serenity::{async_trait, model::id::GuildId};
+use sqlx::Executor;
 use tokio::sync::RwLock;
 
-use crate::{GuildDataCache, MySQL};
+use crate::{Context, Data, Database};
 
 #[derive(Clone)]
 pub struct GuildData {
@@ -24,31 +24,31 @@ pub trait CtxGuildData {
 }
 
 #[async_trait]
-impl CtxGuildData for Context {
+impl CtxGuildData for Context<'_> {
+    async fn guild_data<G: Into<GuildId> + Send + Sync>(
+        &self,
+        guild_id: G,
+    ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error> {
+        self.data().guild_data(guild_id).await
+    }
+}
+
+#[async_trait]
+impl CtxGuildData for Data {
     async fn guild_data<G: Into<GuildId> + Send + Sync>(
         &self,
         guild_id: G,
     ) -> Result<Arc<RwLock<GuildData>>, sqlx::Error> {
         let guild_id = guild_id.into();
 
-        let guild_cache = self
-            .data
-            .read()
-            .await
-            .get::<GuildDataCache>()
-            .cloned()
-            .unwrap();
-
-        let x = if let Some(guild_data) = guild_cache.get(&guild_id) {
+        let x = if let Some(guild_data) = self.guild_data_cache.get(&guild_id) {
             Ok(guild_data.clone())
         } else {
-            let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
-
-            match GuildData::from_id(guild_id, pool).await {
+            match GuildData::from_id(guild_id, &self.database).await {
                 Ok(d) => {
                     let lock = Arc::new(RwLock::new(d));
 
-                    guild_cache.insert(guild_id, lock.clone());
+                    self.guild_data_cache.insert(guild_id, lock.clone());
 
                     Ok(lock)
                 }
@@ -64,7 +64,7 @@ impl CtxGuildData for Context {
 impl GuildData {
     pub async fn from_id<G: Into<GuildId>>(
         guild_id: G,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database> + Copy,
     ) -> Result<GuildData, sqlx::Error> {
         let guild_id = guild_id.into();
 
@@ -77,7 +77,7 @@ SELECT id, prefix, volume, allow_greets, allowed_role
             ",
             guild_id.as_u64()
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await;
 
         match guild_data {
@@ -91,7 +91,7 @@ SELECT id, prefix, volume, allow_greets, allowed_role
 
     async fn create_from_guild<G: Into<GuildId>>(
         guild_id: G,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<GuildData, sqlx::Error> {
         let guild_id = guild_id.into();
 
@@ -102,7 +102,7 @@ INSERT INTO servers (id)
             ",
             guild_id.as_u64()
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(GuildData {
@@ -116,7 +116,7 @@ INSERT INTO servers (id)
 
     pub async fn commit(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -135,7 +135,7 @@ WHERE
             self.allowed_role,
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())
