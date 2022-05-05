@@ -17,9 +17,8 @@ The bot connects to the MySQL server URL defined in a `.env` file in the working
 Config options:
 * `DISCORD_TOKEN`- your token (required)
 * `DATABASE_URL`- your database URL (required)
-* `DISCONNECT_CYCLES`- specifies the number of inactivity cycles before the bot should disconnect itself from a voice channel
-* `DISCONNECT_CYCLE_DELAY`- specifies the delay between cleanup cycles
 * `MAX_SOUNDS`- specifies how many sounds a user should be allowed without Patreon
 * `PATREON_GUILD`- specifies the ID of the guild being used for Patreon benefits
 * `PATREON_ROLE`- specifies the role being checked for Patreon benefits
 * `CACHING_LOCATION`- specifies the location in which to cache the audio files (defaults to `/tmp/`)
+* `UPLOAD_MAX_SIZE`- specifies the maximum upload size to permit in bytes. Defaults to 2MB
