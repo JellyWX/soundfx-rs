@@ -2,14 +2,15 @@ use poise::serenity::{
     builder::CreateActionRow, model::interactions::message_component::ButtonStyle,
 };
 
-use crate::models::guild_data::CtxGuildData;
-use crate::utils::{join_channel, queue_audio};
 use crate::{
-    cmds::autocomplete_sound, models::sound::SoundCtx, utils::play_from_query, Context, Error,
+    cmds::autocomplete_sound,
+    models::{guild_data::CtxGuildData, sound::SoundCtx},
+    utils::{join_channel, play_from_query, queue_audio},
+    Context, Error,
 };
 
 /// Play a sound in your current voice channel
-#[poise::command(slash_command)]
+#[poise::command(slash_command, required_permissions = "SPEAK")]
 pub async fn play(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to play"]
@@ -35,7 +36,7 @@ pub async fn play(
 }
 
 /// Play up to 25 sounds on queue
-#[poise::command(slash_command, rename = "queue")]
+#[poise::command(slash_command, rename = "queue", required_permissions = "SPEAK")]
 pub async fn queue_play(
     ctx: Context<'_>,
     #[description = "Name or ID for queue position 1"]
@@ -196,7 +197,7 @@ pub async fn queue_play(
 }
 
 /// Loop a sound in your current voice channel
-#[poise::command(slash_command, rename = "loop")]
+#[poise::command(slash_command, rename = "loop", required_permissions = "SPEAK")]
 pub async fn loop_play(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to loop"]
@@ -222,7 +223,12 @@ pub async fn loop_play(
 }
 
 /// Get a menu of sounds with buttons to play them
-#[poise::command(slash_command, rename = "soundboard", category = "Play")]
+#[poise::command(
+    slash_command,
+    rename = "soundboard",
+    category = "Play",
+    required_permissions = "SPEAK"
+)]
 pub async fn soundboard(
     ctx: Context<'_>,
     #[description = "Name or ID of sound for button 1"]

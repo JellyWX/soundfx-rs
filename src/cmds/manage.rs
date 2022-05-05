@@ -9,7 +9,12 @@ use crate::{
 };
 
 /// Upload a new sound to the bot
-#[poise::command(slash_command, rename = "upload", category = "Manage")]
+#[poise::command(
+    slash_command,
+    rename = "upload",
+    category = "Manage",
+    required_permissions = "MANAGE_GUILD"
+)]
 pub async fn upload_new_sound(
     ctx: Context<'_>,
     #[description = "Name to upload sound to"] name: String,

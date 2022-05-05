@@ -63,7 +63,7 @@ pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> R
                     if let Some(channel_id) = past_state.channel_id {
                         if let Some(Channel::Guild(channel)) = channel_id.to_channel_cached(&ctx) {
                             if channel.members(&ctx).await.map(|m| m.len()).unwrap_or(0) <= 1 {
-                                let songbird = songbird::get(&ctx).await.unwrap();
+                                let songbird = songbird::get(ctx).await.unwrap();
 
                                 let _ = songbird.remove(guild_id).await;
                             }
