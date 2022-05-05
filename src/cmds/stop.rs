@@ -1,22 +1,12 @@
-use regex_command_attr::command;
-use serenity::{client::Context, framework::standard::CommandResult};
 use songbird;
 
-use crate::framework::{Args, CommandInvoke, CreateGenericResponse};
+use crate::{Context, Error};
 
-#[command("stop")]
-#[required_permissions(Managed)]
-#[group("Stop")]
-#[description("Stop the bot from playing")]
-pub async fn stop_playing(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    _args: Args,
-) -> CommandResult {
-    let guild_id = invoke.guild_id().unwrap();
-
-    let songbird = songbird::get(ctx).await.unwrap();
-    let call_opt = songbird.get(guild_id);
+/// Stop the bot from playing and clear the play queue
+#[poise::command(slash_command, rename = "stop", required_permissions = "MANAGE_GUILD")]
+pub async fn stop_playing(ctx: Context<'_>) -> Result<(), Error> {
+    let songbird = songbird::get(ctx.discord()).await.unwrap();
+    let call_opt = songbird.get(ctx.guild_id().unwrap());
 
     if let Some(call) = call_opt {
         let mut lock = call.lock().await;
@@ -24,31 +14,18 @@ pub async fn stop_playing(
         lock.stop();
     }
 
-    invoke
-        .respond(ctx.http.clone(), CreateGenericResponse::new().content("👍"))
-        .await?;
+    ctx.say("👍").await?;
 
     Ok(())
 }
 
-#[command]
-#[aliases("dc")]
-#[required_permissions(Managed)]
-#[group("Stop")]
-#[description("Disconnect the bot")]
-pub async fn disconnect(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    _args: Args,
-) -> CommandResult {
-    let guild_id = invoke.guild_id().unwrap();
+/// Disconnect the bot
+#[poise::command(slash_command, required_permissions = "SPEAK")]
+pub async fn disconnect(ctx: Context<'_>) -> Result<(), Error> {
+    let songbird = songbird::get(ctx.discord()).await.unwrap();
+    let _ = songbird.leave(ctx.guild_id().unwrap()).await;
 
-    let songbird = songbird::get(ctx).await.unwrap();
-    let _ = songbird.leave(guild_id).await;
-
-    invoke
-        .respond(ctx.http.clone(), CreateGenericResponse::new().content("👍"))
-        .await?;
+    ctx.say("👍").await?;
 
     Ok(())
 }

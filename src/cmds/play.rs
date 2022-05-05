@@ -1,393 +1,349 @@
-use std::{convert::TryFrom, time::Duration};
-
-use regex_command_attr::command;
-use serenity::{
-    builder::CreateActionRow,
-    client::Context,
-    framework::standard::CommandResult,
-    model::interactions::{message_component::ButtonStyle, InteractionResponseType},
-};
-use songbird::{
-    create_player, ffmpeg,
-    input::{cached::Memory, Input},
-    Event,
+use poise::serenity::{
+    builder::CreateActionRow, model::interactions::message_component::ButtonStyle,
 };
 
 use crate::{
-    event_handlers::RestartTrack,
-    framework::{Args, CommandInvoke, CreateGenericResponse},
-    guild_data::CtxGuildData,
-    join_channel, play_from_query,
-    sound::Sound,
-    AudioIndex, MySQL,
+    cmds::autocomplete_sound,
+    models::{guild_data::CtxGuildData, sound::SoundCtx},
+    utils::{join_channel, play_from_query, queue_audio},
+    Context, Error,
 };
 
-#[command]
-#[aliases("p")]
-#[required_permissions(Managed)]
-#[group("Play")]
-#[description("Play a sound in your current voice channel")]
-#[arg(
-    name = "query",
-    description = "Play sound with the specified name or ID",
-    kind = "String",
-    required = true
-)]
-#[example("`/play ubercharge` - play sound with name \"ubercharge\" ")]
-#[example("`/play 13002` - play sound with ID 13002")]
+/// Play a sound in your current voice channel
+#[poise::command(slash_command, required_permissions = "SPEAK")]
 pub async fn play(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).unwrap();
+    ctx: Context<'_>,
+    #[description = "Name or ID of sound to play"]
+    #[autocomplete = "autocomplete_sound"]
+    name: String,
+) -> Result<(), Error> {
+    let guild = ctx.guild().unwrap();
 
-    invoke
-        .respond(
-            ctx.http.clone(),
-            CreateGenericResponse::new()
-                .content(play_from_query(ctx, guild, invoke.author_id(), args, false).await),
+    ctx.say(
+        play_from_query(
+            &ctx.discord(),
+            &ctx.data(),
+            guild,
+            ctx.author().id,
+            &name,
+            false,
         )
-        .await?;
+        .await,
+    )
+    .await?;
 
     Ok(())
 }
 
-#[command("loop")]
-#[required_permissions(Managed)]
-#[group("Play")]
-#[description("Play a sound on loop in your current voice channel")]
-#[arg(
-    name = "query",
-    description = "Play sound with the specified name or ID",
-    kind = "String",
-    required = true
-)]
-#[example("`/loop rain` - loop sound with name \"rain\" ")]
-#[example("`/loop 13002` - play sound with ID 13002")]
-pub async fn loop_play(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).unwrap();
+/// Play up to 25 sounds on queue
+#[poise::command(slash_command, rename = "queue", required_permissions = "SPEAK")]
+pub async fn queue_play(
+    ctx: Context<'_>,
+    #[description = "Name or ID for queue position 1"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_1: String,
+    #[description = "Name or ID for queue position 2"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_2: String,
+    #[description = "Name or ID for queue position 3"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_3: Option<String>,
+    #[description = "Name or ID for queue position 4"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_4: Option<String>,
+    #[description = "Name or ID for queue position 5"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_5: Option<String>,
+    #[description = "Name or ID for queue position 6"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_6: Option<String>,
+    #[description = "Name or ID for queue position 7"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_7: Option<String>,
+    #[description = "Name or ID for queue position 8"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_8: Option<String>,
+    #[description = "Name or ID for queue position 9"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_9: Option<String>,
+    #[description = "Name or ID for queue position 10"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_10: Option<String>,
+    #[description = "Name or ID for queue position 11"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_11: Option<String>,
+    #[description = "Name or ID for queue position 12"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_12: Option<String>,
+    #[description = "Name or ID for queue position 13"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_13: Option<String>,
+    #[description = "Name or ID for queue position 14"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_14: Option<String>,
+    #[description = "Name or ID for queue position 15"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_15: Option<String>,
+    #[description = "Name or ID for queue position 16"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_16: Option<String>,
+    #[description = "Name or ID for queue position 17"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_17: Option<String>,
+    #[description = "Name or ID for queue position 18"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_18: Option<String>,
+    #[description = "Name or ID for queue position 19"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_19: Option<String>,
+    #[description = "Name or ID for queue position 20"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_20: Option<String>,
+    #[description = "Name or ID for queue position 21"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_21: Option<String>,
+    #[description = "Name or ID for queue position 22"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_22: Option<String>,
+    #[description = "Name or ID for queue position 23"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_23: Option<String>,
+    #[description = "Name or ID for queue position 24"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_24: Option<String>,
+    #[description = "Name or ID for queue position 25"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_25: Option<String>,
+) -> Result<(), Error> {
+    let _ = ctx.defer().await;
 
-    invoke
-        .respond(
-            ctx.http.clone(),
-            CreateGenericResponse::new()
-                .content(play_from_query(ctx, guild, invoke.author_id(), args, true).await),
-        )
-        .await?;
-
-    Ok(())
-}
-
-#[command("ambience")]
-#[required_permissions(Managed)]
-#[group("Play")]
-#[description("Play ambient sound in your current voice channel")]
-#[arg(
-    name = "name",
-    description = "Play sound with the specified name",
-    kind = "String",
-    required = false
-)]
-#[example("`/ambience rain on tent` - play the ambient sound \"rain on tent\" ")]
-pub async fn play_ambience(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    let guild = invoke.guild(ctx.cache.clone()).unwrap();
+    let guild = ctx.guild().unwrap();
 
     let channel_to_join = guild
         .voice_states
-        .get(&invoke.author_id())
+        .get(&ctx.author().id)
         .and_then(|voice_state| voice_state.channel_id);
 
     match channel_to_join {
         Some(user_channel) => {
-            let audio_index = ctx.data.read().await.get::<AudioIndex>().cloned().unwrap();
+            let (call_handler, _) = join_channel(ctx.discord(), guild.clone(), user_channel).await;
 
-            if let Some(search_name) = args.named("name") {
-                if let Some(filename) = audio_index.get(search_name) {
-                    let (track, track_handler) = create_player(
-                        Input::try_from(
-                            Memory::new(ffmpeg(format!("audio/{}", filename)).await.unwrap())
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    );
+            let guild_data = ctx
+                .data()
+                .guild_data(ctx.guild_id().unwrap())
+                .await
+                .unwrap();
 
-                    let (call_handler, _) = join_channel(ctx, guild.clone(), user_channel).await;
-                    let guild_data = ctx.guild_data(guild).await.unwrap();
+            let mut lock = call_handler.lock().await;
 
-                    {
-                        let mut lock = call_handler.lock().await;
+            let query_terms = [
+                Some(sound_1),
+                Some(sound_2),
+                sound_3,
+                sound_4,
+                sound_5,
+                sound_6,
+                sound_7,
+                sound_8,
+                sound_9,
+                sound_10,
+                sound_11,
+                sound_12,
+                sound_13,
+                sound_14,
+                sound_15,
+                sound_16,
+                sound_17,
+                sound_18,
+                sound_19,
+                sound_20,
+                sound_21,
+                sound_22,
+                sound_23,
+                sound_24,
+                sound_25,
+            ];
 
-                        lock.play(track);
-                    }
+            let mut sounds = vec![];
 
-                    let _ = track_handler.set_volume(guild_data.read().await.volume as f32 / 100.0);
-                    let _ = track_handler.add_event(
-                        Event::Periodic(
-                            track_handler.metadata().duration.unwrap() - Duration::from_millis(200),
-                            None,
-                        ),
-                        RestartTrack {},
-                    );
-
-                    invoke
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new()
-                                .content(format!("Playing ambience **{}**", search_name)),
-                        )
-                        .await?;
-                } else {
-                    invoke
-                        .respond(
-                            ctx.http.clone(),
-                            CreateGenericResponse::new().embed(|e| {
-                                e.title("Not Found").description(format!(
-                                    "Could not find ambience sound by name **{}**
-
-__Available ambience sounds:__
-{}",
-                                    search_name,
-                                    audio_index
-                                        .keys()
-                                        .into_iter()
-                                        .map(|i| i.as_str())
-                                        .collect::<Vec<&str>>()
-                                        .join("\n")
-                                ))
-                            }),
-                        )
-                        .await?;
-                }
-            } else {
-                invoke
-                    .respond(
-                        ctx.http.clone(),
-                        CreateGenericResponse::new().embed(|e| {
-                            e.title("Available Sounds").description(
-                                audio_index
-                                    .keys()
-                                    .into_iter()
-                                    .map(|i| i.as_str())
-                                    .collect::<Vec<&str>>()
-                                    .join("\n"),
-                            )
-                        }),
-                    )
+            for sound in query_terms.iter().flatten() {
+                let search = ctx
+                    .data()
+                    .search_for_sound(&sound, ctx.guild_id().unwrap(), ctx.author().id, true)
                     .await?;
-            }
-        }
 
+                if let Some(sound) = search.first() {
+                    sounds.push(sound.clone());
+                }
+            }
+
+            queue_audio(
+                &sounds,
+                guild_data.read().await.volume,
+                &mut lock,
+                &ctx.data().database,
+            )
+            .await
+            .unwrap();
+
+            ctx.say(format!("Queued {} sounds!", sounds.len())).await?;
+        }
         None => {
-            invoke
-                .respond(
-                    ctx.http.clone(),
-                    CreateGenericResponse::new().content("You are not in a voice chat!"),
-                )
-                .await?;
+            ctx.say("You are not in a voice chat!").await?;
         }
     }
 
     Ok(())
 }
 
-#[command("soundboard")]
-#[required_permissions(Managed)]
-#[group("Play")]
-#[kind(Slash)]
-#[description("Get a menu of sounds with buttons to play them")]
-#[arg(
-    name = "1",
-    description = "Query for sound button 1",
-    kind = "String",
-    required = true
-)]
-#[arg(
-    name = "2",
-    description = "Query for sound button 2",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "3",
-    description = "Query for sound button 3",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "4",
-    description = "Query for sound button 4",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "5",
-    description = "Query for sound button 5",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "6",
-    description = "Query for sound button 6",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "7",
-    description = "Query for sound button 7",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "8",
-    description = "Query for sound button 8",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "9",
-    description = "Query for sound button 9",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "10",
-    description = "Query for sound button 10",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "11",
-    description = "Query for sound button 11",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "12",
-    description = "Query for sound button 12",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "13",
-    description = "Query for sound button 13",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "14",
-    description = "Query for sound button 14",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "15",
-    description = "Query for sound button 15",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "16",
-    description = "Query for sound button 16",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "17",
-    description = "Query for sound button 17",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "18",
-    description = "Query for sound button 18",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "19",
-    description = "Query for sound button 19",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "20",
-    description = "Query for sound button 20",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "21",
-    description = "Query for sound button 21",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "22",
-    description = "Query for sound button 22",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "23",
-    description = "Query for sound button 23",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "24",
-    description = "Query for sound button 24",
-    kind = "String",
-    required = false
-)]
-#[arg(
-    name = "25",
-    description = "Query for sound button 25",
-    kind = "String",
-    required = false
-)]
-#[example("`/soundboard ubercharge` - create a soundboard with a button for the \"ubercharge\" sound effect")]
-#[example("`/soundboard 57000 24119 2 1002 13202` - create a soundboard with 5 buttons, for sounds with the IDs presented")]
-pub async fn soundboard(
-    ctx: &Context,
-    invoke: &(dyn CommandInvoke + Sync + Send),
-    args: Args,
-) -> CommandResult {
-    if let Some(interaction) = invoke.interaction() {
-        let _ = interaction
-            .create_interaction_response(&ctx, |r| {
-                r.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-            })
-            .await;
-    }
+/// Loop a sound in your current voice channel
+#[poise::command(slash_command, rename = "loop", required_permissions = "SPEAK")]
+pub async fn loop_play(
+    ctx: Context<'_>,
+    #[description = "Name or ID of sound to loop"]
+    #[autocomplete = "autocomplete_sound"]
+    name: String,
+) -> Result<(), Error> {
+    let guild = ctx.guild().unwrap();
 
-    let pool = ctx
-        .data
-        .read()
-        .await
-        .get::<MySQL>()
-        .cloned()
-        .expect("Could not get SQLPool from data");
+    ctx.say(
+        play_from_query(
+            &ctx.discord(),
+            &ctx.data(),
+            guild,
+            ctx.author().id,
+            &name,
+            true,
+        )
+        .await,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Get a menu of sounds with buttons to play them
+#[poise::command(
+    slash_command,
+    rename = "soundboard",
+    category = "Play",
+    required_permissions = "SPEAK"
+)]
+pub async fn soundboard(
+    ctx: Context<'_>,
+    #[description = "Name or ID of sound for button 1"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_1: String,
+    #[description = "Name or ID of sound for button 2"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_2: Option<String>,
+    #[description = "Name or ID of sound for button 3"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_3: Option<String>,
+    #[description = "Name or ID of sound for button 4"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_4: Option<String>,
+    #[description = "Name or ID of sound for button 5"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_5: Option<String>,
+    #[description = "Name or ID of sound for button 6"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_6: Option<String>,
+    #[description = "Name or ID of sound for button 7"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_7: Option<String>,
+    #[description = "Name or ID of sound for button 8"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_8: Option<String>,
+    #[description = "Name or ID of sound for button 9"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_9: Option<String>,
+    #[description = "Name or ID of sound for button 10"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_10: Option<String>,
+    #[description = "Name or ID of sound for button 11"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_11: Option<String>,
+    #[description = "Name or ID of sound for button 12"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_12: Option<String>,
+    #[description = "Name or ID of sound for button 13"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_13: Option<String>,
+    #[description = "Name or ID of sound for button 14"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_14: Option<String>,
+    #[description = "Name or ID of sound for button 15"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_15: Option<String>,
+    #[description = "Name or ID of sound for button 16"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_16: Option<String>,
+    #[description = "Name or ID of sound for button 17"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_17: Option<String>,
+    #[description = "Name or ID of sound for button 18"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_18: Option<String>,
+    #[description = "Name or ID of sound for button 19"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_19: Option<String>,
+    #[description = "Name or ID of sound for button 20"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_20: Option<String>,
+    #[description = "Name or ID of sound for button 21"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_21: Option<String>,
+    #[description = "Name or ID of sound for button 22"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_22: Option<String>,
+    #[description = "Name or ID of sound for button 23"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_23: Option<String>,
+    #[description = "Name or ID of sound for button 24"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_24: Option<String>,
+    #[description = "Name or ID of sound for button 25"]
+    #[autocomplete = "autocomplete_sound"]
+    sound_25: Option<String>,
+) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    let query_terms = [
+        Some(sound_1),
+        sound_2,
+        sound_3,
+        sound_4,
+        sound_5,
+        sound_6,
+        sound_7,
+        sound_8,
+        sound_9,
+        sound_10,
+        sound_11,
+        sound_12,
+        sound_13,
+        sound_14,
+        sound_15,
+        sound_16,
+        sound_17,
+        sound_18,
+        sound_19,
+        sound_20,
+        sound_21,
+        sound_22,
+        sound_23,
+        sound_24,
+        sound_25,
+    ];
 
     let mut sounds = vec![];
 
-    for n in 1..25 {
-        let search = Sound::search_for_sound(
-            args.named(&n.to_string()).unwrap_or(&"".to_string()),
-            invoke.guild_id().unwrap(),
-            invoke.author_id(),
-            pool.clone(),
-            true,
-        )
-        .await?;
+    for sound in query_terms.iter().flatten() {
+        let search = ctx
+            .data()
+            .search_for_sound(&sound, ctx.guild_id().unwrap(), ctx.author().id, true)
+            .await?;
 
         if let Some(sound) = search.first() {
             if !sounds.contains(sound) {
@@ -396,29 +352,25 @@ pub async fn soundboard(
         }
     }
 
-    invoke
-        .followup(
-            ctx.http.clone(),
-            CreateGenericResponse::new()
-                .content("**Play a sound:**")
-                .components(|c| {
-                    for row in sounds.as_slice().chunks(5) {
-                        let mut action_row: CreateActionRow = Default::default();
-                        for sound in row {
-                            action_row.create_button(|b| {
-                                b.style(ButtonStyle::Primary)
-                                    .label(&sound.name)
-                                    .custom_id(sound.id)
-                            });
-                        }
+    ctx.send(|m| {
+        m.content("**Play a sound:**").components(|c| {
+            for row in sounds.as_slice().chunks(5) {
+                let mut action_row: CreateActionRow = Default::default();
+                for sound in row {
+                    action_row.create_button(|b| {
+                        b.style(ButtonStyle::Primary)
+                            .label(&sound.name)
+                            .custom_id(sound.id)
+                    });
+                }
 
-                        c.add_action_row(action_row);
-                    }
+                c.add_action_row(action_row);
+            }
 
-                    c
-                }),
-        )
-        .await?;
+            c
+        })
+    })
+    .await?;
 
     Ok(())
 }

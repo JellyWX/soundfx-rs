@@ -1,110 +1,11 @@
 use std::{env, path::Path};
 
-use serenity::{async_trait, model::id::UserId, prelude::Context};
+use poise::serenity::async_trait;
 use songbird::input::restartable::Restartable;
-use sqlx::mysql::MySqlPool;
+use sqlx::{Error, Executor};
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
-use super::error::ErrorTypes;
-use crate::{JoinSoundCache, MySQL};
-
-#[async_trait]
-pub trait JoinSoundCtx {
-    async fn join_sound<U: Into<UserId> + Send + Sync>(&self, user_id: U) -> Option<u32>;
-    async fn update_join_sound<U: Into<UserId> + Send + Sync>(
-        &self,
-        user_id: U,
-        join_id: Option<u32>,
-    );
-}
-
-#[async_trait]
-impl JoinSoundCtx for Context {
-    async fn join_sound<U: Into<UserId> + Send + Sync>(&self, user_id: U) -> Option<u32> {
-        let user_id = user_id.into();
-        let join_sound_cache = self
-            .data
-            .read()
-            .await
-            .get::<JoinSoundCache>()
-            .cloned()
-            .unwrap();
-
-        let x = if let Some(join_sound_id) = join_sound_cache.get(&user_id) {
-            join_sound_id.value().clone()
-        } else {
-            let join_sound_id = {
-                let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
-
-                let join_id_res = sqlx::query!(
-                    "
-SELECT join_sound_id
-    FROM users
-    WHERE user = ?
-                    ",
-                    user_id.as_u64()
-                )
-                .fetch_one(&pool)
-                .await;
-
-                if let Ok(row) = join_id_res {
-                    row.join_sound_id
-                } else {
-                    None
-                }
-            };
-
-            join_sound_cache.insert(user_id, join_sound_id);
-
-            join_sound_id
-        };
-
-        x
-    }
-
-    async fn update_join_sound<U: Into<UserId> + Send + Sync>(
-        &self,
-        user_id: U,
-        join_id: Option<u32>,
-    ) {
-        let user_id = user_id.into();
-        let join_sound_cache = self
-            .data
-            .read()
-            .await
-            .get::<JoinSoundCache>()
-            .cloned()
-            .unwrap();
-
-        join_sound_cache.insert(user_id, join_id);
-
-        let pool = self.data.read().await.get::<MySQL>().cloned().unwrap();
-
-        let _ = sqlx::query!(
-            "
-INSERT IGNORE INTO users (user)
-    VALUES (?)
-            ",
-            user_id.as_u64()
-        )
-        .execute(&pool)
-        .await;
-
-        let _ = sqlx::query!(
-            "
-UPDATE users
-SET
-    join_sound_id = ?
-WHERE
-    user = ?
-            ",
-            join_id,
-            user_id.as_u64()
-        )
-        .execute(&pool)
-        .await;
-    }
-}
+use crate::{consts::UPLOAD_MAX_SIZE, error::ErrorTypes, Data, Database};
 
 #[derive(Clone)]
 pub struct Sound {
@@ -121,16 +22,41 @@ impl PartialEq for Sound {
     }
 }
 
-impl Sound {
-    pub async fn search_for_sound<G: Into<u64>, U: Into<u64>>(
+#[async_trait]
+pub trait SoundCtx {
+    async fn search_for_sound<G: Into<u64> + Send, U: Into<u64> + Send>(
+        &self,
         query: &str,
         guild_id: G,
         user_id: U,
-        db_pool: MySqlPool,
+        strict: bool,
+    ) -> Result<Vec<Sound>, sqlx::Error>;
+    async fn autocomplete_user_sounds<U: Into<u64> + Send, G: Into<u64> + Send>(
+        &self,
+        query: &str,
+        user_id: U,
+        guild_id: G,
+    ) -> Result<Vec<Sound>, sqlx::Error>;
+    async fn user_sounds<U: Into<u64> + Send>(&self, user_id: U)
+        -> Result<Vec<Sound>, sqlx::Error>;
+    async fn guild_sounds<G: Into<u64> + Send>(
+        &self,
+        guild_id: G,
+    ) -> Result<Vec<Sound>, sqlx::Error>;
+}
+
+#[async_trait]
+impl SoundCtx for Data {
+    async fn search_for_sound<G: Into<u64> + Send, U: Into<u64> + Send>(
+        &self,
+        query: &str,
+        guild_id: G,
+        user_id: U,
         strict: bool,
     ) -> Result<Vec<Sound>, sqlx::Error> {
         let guild_id = guild_id.into();
         let user_id = user_id.into();
+        let db_pool = self.database.clone();
 
         fn extract_id(s: &str) -> Option<u32> {
             if s.len() > 3 && s.to_lowercase().starts_with("id:") {
@@ -148,7 +74,7 @@ impl Sound {
 
         if let Some(id) = extract_id(&query) {
             let sound = sqlx::query_as_unchecked!(
-                Self,
+                Sound,
                 "
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
@@ -172,7 +98,7 @@ SELECT name, id, public, server_id, uploader_id
 
             if strict {
                 sound = sqlx::query_as_unchecked!(
-                    Self,
+                    Sound,
                     "
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
@@ -193,7 +119,7 @@ SELECT name, id, public, server_id, uploader_id
                 .await?;
             } else {
                 sound = sqlx::query_as_unchecked!(
-                    Self,
+                    Sound,
                     "
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
@@ -218,7 +144,71 @@ SELECT name, id, public, server_id, uploader_id
         }
     }
 
-    async fn src(&self, db_pool: MySqlPool) -> Vec<u8> {
+    async fn autocomplete_user_sounds<U: Into<u64> + Send, G: Into<u64> + Send>(
+        &self,
+        query: &str,
+        user_id: U,
+        guild_id: G,
+    ) -> Result<Vec<Sound>, Error> {
+        let db_pool = self.database.clone();
+
+        sqlx::query_as_unchecked!(
+            Sound,
+            "
+SELECT name, id, public, server_id, uploader_id
+FROM sounds
+WHERE name LIKE CONCAT(?, '%') AND (uploader_id = ? OR server_id = ?)
+LIMIT 25
+            ",
+            query,
+            user_id.into(),
+            guild_id.into(),
+        )
+        .fetch_all(&db_pool)
+        .await
+    }
+
+    async fn user_sounds<U: Into<u64> + Send>(
+        &self,
+        user_id: U,
+    ) -> Result<Vec<Sound>, sqlx::Error> {
+        let sounds = sqlx::query_as_unchecked!(
+            Sound,
+            "
+SELECT name, id, public, server_id, uploader_id
+    FROM sounds
+    WHERE uploader_id = ?
+            ",
+            user_id.into()
+        )
+        .fetch_all(&self.database)
+        .await?;
+
+        Ok(sounds)
+    }
+
+    async fn guild_sounds<G: Into<u64> + Send>(
+        &self,
+        guild_id: G,
+    ) -> Result<Vec<Sound>, sqlx::Error> {
+        let sounds = sqlx::query_as_unchecked!(
+            Sound,
+            "
+SELECT name, id, public, server_id, uploader_id
+    FROM sounds
+    WHERE server_id = ?
+            ",
+            guild_id.into()
+        )
+        .fetch_all(&self.database)
+        .await?;
+
+        Ok(sounds)
+    }
+}
+
+impl Sound {
+    async fn src(&self, db_pool: impl Executor<'_, Database = Database>) -> Vec<u8> {
         struct Src {
             src: Vec<u8>,
         }
@@ -233,7 +223,7 @@ SELECT src
             ",
             self.id
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await
         .unwrap();
 
@@ -242,8 +232,8 @@ SELECT src
 
     pub async fn store_sound_source(
         &self,
-        db_pool: MySqlPool,
-    ) -> Result<Restartable, Box<dyn std::error::Error + Send + Sync>> {
+        db_pool: impl Executor<'_, Database = Database>,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let caching_location = env::var("CACHING_LOCATION").unwrap_or(String::from("/tmp"));
 
         let path_name = format!("{}/sound-{}", caching_location, self.id);
@@ -255,15 +245,26 @@ SELECT src
             file.write_all(&self.src(db_pool).await).await?;
         }
 
+        Ok(path_name)
+    }
+
+    pub async fn playable(
+        &self,
+        db_pool: impl Executor<'_, Database = Database>,
+    ) -> Result<Restartable, Box<dyn std::error::Error + Send + Sync>> {
+        let path_name = self.store_sound_source(db_pool).await?;
+
         Ok(Restartable::ffmpeg(path_name, false)
             .await
             .expect("FFMPEG ERROR!"))
     }
 
-    pub async fn count_user_sounds(
-        user_id: u64,
-        db_pool: MySqlPool,
+    pub async fn count_user_sounds<U: Into<u64>>(
+        user_id: U,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<u32, sqlx::error::Error> {
+        let user_id = user_id.into();
+
         let c = sqlx::query!(
             "
 SELECT COUNT(1) as count
@@ -272,18 +273,20 @@ SELECT COUNT(1) as count
         ",
             user_id
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await?
         .count;
 
         Ok(c as u32)
     }
 
-    pub async fn count_named_user_sounds(
-        user_id: u64,
+    pub async fn count_named_user_sounds<U: Into<u64>>(
+        user_id: U,
         name: &String,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<u32, sqlx::error::Error> {
+        let user_id = user_id.into();
+
         let c = sqlx::query!(
             "
 SELECT COUNT(1) as count
@@ -295,7 +298,7 @@ SELECT COUNT(1) as count
             user_id,
             name
         )
-        .fetch_one(&db_pool)
+        .fetch_one(db_pool)
         .await?
         .count;
 
@@ -304,7 +307,7 @@ SELECT COUNT(1) as count
 
     pub async fn commit(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -317,7 +320,7 @@ WHERE
             self.public,
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())
@@ -325,7 +328,7 @@ WHERE
 
     pub async fn delete(
         &self,
-        db_pool: MySqlPool,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::query!(
             "
@@ -335,19 +338,22 @@ DELETE
             ",
             self.id
         )
-        .execute(&db_pool)
+        .execute(db_pool)
         .await?;
 
         Ok(())
     }
 
-    pub async fn create_anon(
+    pub async fn create_anon<G: Into<u64>, U: Into<u64>>(
         name: &str,
         src_url: &str,
-        server_id: u64,
-        user_id: u64,
-        db_pool: MySqlPool,
+        server_id: G,
+        user_id: U,
+        db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + Send>> {
+        let server_id = server_id.into();
+        let user_id = user_id.into();
+
         async fn process_src(src_url: &str) -> Option<Vec<u8>> {
             let output = Command::new("ffmpeg")
                 .kill_on_drop(true)
@@ -355,12 +361,10 @@ DELETE
                 .arg(src_url)
                 .arg("-loglevel")
                 .arg("error")
-                .arg("-b:a")
-                .arg("28000")
                 .arg("-f")
                 .arg("opus")
                 .arg("-fs")
-                .arg("1048576")
+                .arg(UPLOAD_MAX_SIZE.to_string())
                 .arg("pipe:1")
                 .output()
                 .await;
@@ -392,7 +396,7 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
                     user_id,
                     data
                 )
-                .execute(&db_pool)
+                .execute(db_pool)
                 .await
                 {
                     Ok(_) => Ok(()),
@@ -403,43 +407,5 @@ INSERT INTO sounds (name, server_id, uploader_id, public, src)
 
             None => Err(Box::new(ErrorTypes::InvalidFile)),
         }
-    }
-
-    pub async fn user_sounds<U: Into<u64>>(
-        user_id: U,
-        db_pool: MySqlPool,
-    ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
-        let sounds = sqlx::query_as_unchecked!(
-            Sound,
-            "
-SELECT name, id, public, server_id, uploader_id
-    FROM sounds
-    WHERE uploader_id = ?
-            ",
-            user_id.into()
-        )
-        .fetch_all(&db_pool)
-        .await?;
-
-        Ok(sounds)
-    }
-
-    pub async fn guild_sounds<G: Into<u64>>(
-        guild_id: G,
-        db_pool: MySqlPool,
-    ) -> Result<Vec<Sound>, Box<dyn std::error::Error + Send + Sync>> {
-        let sounds = sqlx::query_as_unchecked!(
-            Sound,
-            "
-SELECT name, id, public, server_id, uploader_id
-    FROM sounds
-    WHERE server_id = ?
-            ",
-            guild_id.into()
-        )
-        .fetch_all(&db_pool)
-        .await?;
-
-        Ok(sounds)
     }
 }
