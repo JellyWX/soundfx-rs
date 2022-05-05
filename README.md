@@ -6,6 +6,8 @@ A bot for managing sound effects in Discord.
 
 `sudo apt install gcc gcc-multilib cmake`
 
+Run the migrations in the `migrations` directory to set up the database.
+
 Use the Cargo.toml file to build it. Needs Rust 1.52+
 
 ### Running & Config
