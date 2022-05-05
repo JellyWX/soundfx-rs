@@ -1,13 +1,12 @@
-# SoundFX 2
-## The complete (second) Rust rewrite of SoundFX
+# SoundFX
 
-SoundFX 2 is the Rust rewrite of SoundFX. SoundFX 2 attempts to retain all functionality of the original bot, in a more 
-efficient and robust package. SoundFX 2 is as asynchronous as it can get, and runs on the Tokio runtime.
+A bot for managing sound effects in Discord.
 
 ### Building
 
-Use the Cargo.toml file to build it. Simple as. Don't need anything like MySQL libs and stuff because SQLx includes its 
-own pure Rust one. Needs Rust 1.43+
+`sudo apt install gcc gcc-multilib cmake`
+
+Use the Cargo.toml file to build it. Needs Rust 1.52+
 
 ### Running & Config
 
