@@ -1,12 +1,15 @@
 use std::{collections::HashMap, env};
 
-use poise::serenity::{
-    model::{
-        channel::Channel,
-        interactions::{Interaction, InteractionResponseType},
+use poise::{
+    serenity::{
+        model::{
+            channel::Channel,
+            interactions::{Interaction, InteractionResponseType},
+        },
+        prelude::Context,
+        utils::shard_id,
     },
-    prelude::Context,
-    utils::shard_id,
+    serenity_prelude::Activity,
 };
 
 use crate::{
@@ -17,6 +20,9 @@ use crate::{
 
 pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> Result<(), Error> {
     match event {
+        poise::Event::CacheReady { .. } => {
+            ctx.set_activity(Activity::watching("for /play")).await;
+        }
         poise::Event::GuildCreate { guild, is_new, .. } => {
             if *is_new {
                 if let Ok(token) = env::var("DISCORDBOTS_TOKEN") {
