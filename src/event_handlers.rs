@@ -20,7 +20,7 @@ use crate::{
 
 pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> Result<(), Error> {
     match event {
-        poise::Event::CacheReady { .. } => {
+        poise::Event::Ready { .. } => {
             ctx.set_activity(Activity::watching("for /play")).await;
         }
         poise::Event::GuildCreate { guild, is_new, .. } => {

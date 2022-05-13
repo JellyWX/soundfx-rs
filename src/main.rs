@@ -124,8 +124,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .token(discord_token)
         .user_data_setup(move |ctx, _bot, framework| {
             Box::pin(async move {
-                ctx.set_activity(Activity::watching("for /play")).await;
-
                 register_application_commands(
                     ctx,
                     framework,

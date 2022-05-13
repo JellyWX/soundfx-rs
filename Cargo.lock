@@ -1013,25 +1013,14 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52da4364ffb0e4fe33a9841a98a3f3014fb964045ce4f7a45a398243c8d6b0c9"
+checksum = "713d550d9b44d89174e066b7a6217ae06234c10cb47819a88290d2b353c31799"
 dependencies = [
  "libc",
  "log",
- "miow",
- "ntapi",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "winapi",
-]
-
-[[package]]
-name = "miow"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
-dependencies = [
- "winapi",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1069,15 +1058,6 @@ checksum = "a8903e5a29a317527874d0402f867152a3d21c908bb0b933e416c65e301d4c36"
 dependencies = [
  "memchr",
  "minimal-lexical",
-]
-
-[[package]]
-name = "ntapi"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c28774a7fd2fbb4f0babd8237ce554b73af68021b5f695a3cebd6c59bac0980f"
-dependencies = [
- "winapi",
 ]
 
 [[package]]
@@ -1395,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "poise"
 version = "0.1.0"
-source = "git+https://github.com/jellywx/poise?branch=jellywx-pv2#3f18e5e29e34f3b5db307605c778036e19f770fd"
+source = "git+https://github.com/jellywx/poise?branch=jellywx-pv2#86f88dc817918e96880741508ea3777d1df52a66"
 dependencies = [
  "async-trait",
  "derivative",
@@ -1405,14 +1385,14 @@ dependencies = [
  "once_cell",
  "poise_macros",
  "regex",
- "serenity",
+ "serenity 0.11.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
 ]
 
 [[package]]
 name = "poise_macros"
 version = "0.1.0"
-source = "git+https://github.com/jellywx/poise?branch=jellywx-pv2#3f18e5e29e34f3b5db307605c778036e19f770fd"
+source = "git+https://github.com/jellywx/poise?branch=jellywx-pv2#86f88dc817918e96880741508ea3777d1df52a66"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1439,9 +1419,9 @@ checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.37"
+version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec757218438d5fda206afc041538b2f6d889286160d649a86a24d37e1235afd1"
+checksum = "9027b48e9d4c9175fa2218adf3557f91c1137021739951d4932f5f8268ac48aa"
 dependencies = [
  "unicode-xid",
 ]
@@ -1794,8 +1774,9 @@ dependencies = [
 
 [[package]]
 name = "serenity"
-version = "0.11.1"
-source = "git+https://github.com//serenity-rs/serenity?branch=current#e690ccd17174f2b9dc3f6a1545f69a209a11241f"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246008828de84241202b092316c4729da36c3edd8f0c17ed6893df8e414c3c9b"
 dependencies = [
  "async-trait",
  "async-tungstenite",
@@ -1823,9 +1804,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "serenity"
+version = "0.11.2"
+source = "git+https://github.com//serenity-rs/serenity?branch=current#c9286b14136128f68e2f4a44859e3bec21fa9de6"
+dependencies = [
+ "async-trait",
+ "async-tungstenite",
+ "base64",
+ "bitflags",
+ "bytes",
+ "cfg-if",
+ "flate2",
+ "futures",
+ "mime",
+ "mime_guess",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde-value",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "typemap_rev",
+ "url",
+]
+
+[[package]]
 name = "serenity-voice-model"
 version = "0.1.1"
-source = "git+https://github.com/serenity-rs/serenity?branch=next#44858608d8a8169791c00bccaaee65b55494452d"
+source = "git+https://github.com/serenity-rs/serenity?branch=next#a00b3a395af39ec23c41e71399014f9b3846c6cf"
 dependencies = [
  "bitflags",
  "enum_primitive",
@@ -1930,7 +1938,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "serenity",
+ "serenity 0.11.2 (git+https://github.com//serenity-rs/serenity?branch=current)",
  "serenity-voice-model",
  "streamcatcher",
  "symphonia-core",
@@ -2130,9 +2138,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.92"
+version = "1.0.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ff7c592601f11445996a06f8ad0c27f094a58857c2f89e97974ab9235b92c52"
+checksum = "a07e33e919ebcd69113d5be0e4d70c5707004ff45188910106854f38b960df4a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2232,9 +2240,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.18.1"
+version = "1.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce653fb475565de9f6fb0614b28bca8df2c430c0cf84bcd9c843f15de5414cc"
+checksum = "4903bf0427cf68dddd5aa6a93220756f8be0c34fcfa9f5e6191e103e15a31395"
 dependencies = [
  "bytes",
  "libc",
