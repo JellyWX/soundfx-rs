@@ -15,7 +15,7 @@ use dotenv::dotenv;
 use poise::serenity::{
     builder::CreateApplicationCommands,
     model::{
-        gateway::{Activity, GatewayIntents},
+        gateway::GatewayIntents,
         id::{GuildId, UserId},
     },
 };
