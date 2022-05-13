@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Play a sound in your current voice channel
-#[poise::command(slash_command, required_permissions = "SPEAK")]
+#[poise::command(slash_command, default_member_permissions = "SPEAK")]
 pub async fn play(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to play"]
@@ -36,7 +36,7 @@ pub async fn play(
 }
 
 /// Play up to 25 sounds on queue
-#[poise::command(slash_command, rename = "queue", required_permissions = "SPEAK")]
+#[poise::command(slash_command, rename = "queue", default_member_permissions = "SPEAK")]
 pub async fn queue_play(
     ctx: Context<'_>,
     #[description = "Name or ID for queue position 1"]
@@ -197,7 +197,7 @@ pub async fn queue_play(
 }
 
 /// Loop a sound in your current voice channel
-#[poise::command(slash_command, rename = "loop", required_permissions = "SPEAK")]
+#[poise::command(slash_command, rename = "loop", default_member_permissions = "SPEAK")]
 pub async fn loop_play(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to loop"]
@@ -227,7 +227,7 @@ pub async fn loop_play(
     slash_command,
     rename = "soundboard",
     category = "Play",
-    required_permissions = "SPEAK"
+    default_member_permissions = "SPEAK"
 )]
 pub async fn soundboard(
     ctx: Context<'_>,

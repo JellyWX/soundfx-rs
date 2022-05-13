@@ -13,7 +13,7 @@ use crate::{
     slash_command,
     rename = "upload",
     category = "Manage",
-    required_permissions = "MANAGE_GUILD"
+    default_member_permissions = "MANAGE_GUILD"
 )]
 pub async fn upload_new_sound(
     ctx: Context<'_>,
