@@ -17,6 +17,8 @@ pub async fn play(
     #[autocomplete = "autocomplete_sound"]
     name: String,
 ) -> Result<(), Error> {
+    ctx.defer().await?;
+
     let guild = ctx.guild().unwrap();
 
     ctx.say(
@@ -115,7 +117,7 @@ pub async fn queue_play(
     #[autocomplete = "autocomplete_sound"]
     sound_25: Option<String>,
 ) -> Result<(), Error> {
-    let _ = ctx.defer().await;
+    ctx.defer().await?;
 
     let guild = ctx.guild().unwrap();
 
@@ -204,6 +206,8 @@ pub async fn loop_play(
     #[autocomplete = "autocomplete_sound"]
     name: String,
 ) -> Result<(), Error> {
+    ctx.defer().await?;
+
     let guild = ctx.guild().unwrap();
 
     ctx.say(
