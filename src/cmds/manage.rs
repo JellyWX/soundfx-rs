@@ -20,6 +20,8 @@ pub async fn upload_new_sound(
     #[description = "Name to upload sound to"] name: String,
     #[description = "Sound file (max. 2MB)"] file: Attachment,
 ) -> Result<(), Error> {
+    ctx.defer().await?;
+
     fn is_numeric(s: &String) -> bool {
         for char in s.chars() {
             if char.is_digit(10) {
