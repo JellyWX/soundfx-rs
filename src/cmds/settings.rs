@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// Change the bot's volume in this server
-#[poise::command(slash_command, rename = "volume")]
+#[poise::command(slash_command, rename = "volume", guild_only = true)]
 pub async fn change_volume(
     ctx: Context<'_>,
     #[description = "New volume as a percentage"] volume: Option<usize>,
@@ -32,7 +32,7 @@ pub async fn change_volume(
 }
 
 /// Manage greet sounds on this server
-#[poise::command(slash_command, rename = "greet")]
+#[poise::command(slash_command, rename = "greet", guild_only = true)]
 pub async fn greet_sound(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
@@ -70,7 +70,7 @@ pub async fn set_greet_sound(
 }
 
 /// Set a join sound
-#[poise::command(slash_command, rename = "unset")]
+#[poise::command(slash_command, rename = "unset", guild_only = true)]
 pub async fn unset_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     ctx.data().update_join_sound(ctx.author().id, None).await;
 
@@ -80,7 +80,7 @@ pub async fn unset_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Disable greet sounds on this server
-#[poise::command(slash_command, rename = "disable")]
+#[poise::command(slash_command, rename = "disable", guild_only = true)]
 pub async fn disable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     let guild_data_opt = ctx.guild_data(ctx.guild_id().unwrap()).await;
 
@@ -97,7 +97,7 @@ pub async fn disable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Enable greet sounds on this server
-#[poise::command(slash_command, rename = "enable")]
+#[poise::command(slash_command, rename = "enable", guild_only = true)]
 pub async fn enable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     let guild_data_opt = ctx.guild_data(ctx.guild_id().unwrap()).await;
 

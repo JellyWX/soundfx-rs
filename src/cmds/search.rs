@@ -27,13 +27,13 @@ fn format_search_results<'a>(search_results: Vec<Sound>) -> CreateReply<'a> {
 }
 
 /// Show uploaded sounds
-#[poise::command(slash_command, rename = "list")]
+#[poise::command(slash_command, rename = "list", guild_only = true)]
 pub async fn list_sounds(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
 /// Show the sounds uploaded to this server
-#[poise::command(slash_command, rename = "server")]
+#[poise::command(slash_command, rename = "server", guild_only = true)]
 pub async fn list_guild_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let sounds;
     let mut message_buffer;
@@ -68,7 +68,7 @@ pub async fn list_guild_sounds(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show all sounds you have uploaded
-#[poise::command(slash_command, rename = "user")]
+#[poise::command(slash_command, rename = "user", guild_only = true)]
 pub async fn list_user_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let sounds;
     let mut message_buffer;
@@ -103,7 +103,12 @@ pub async fn list_user_sounds(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Search for sounds
-#[poise::command(slash_command, rename = "search", category = "Search")]
+#[poise::command(
+    slash_command,
+    rename = "search",
+    category = "Search",
+    guild_only = true
+)]
 pub async fn search_sounds(
     ctx: Context<'_>,
     #[description = "Sound name to search for"] query: String,
@@ -123,7 +128,7 @@ pub async fn search_sounds(
 }
 
 /// Show a page of random sounds
-#[poise::command(slash_command, rename = "random")]
+#[poise::command(slash_command, rename = "random", guild_only = true)]
 pub async fn show_random_sounds(ctx: Context<'_>) -> Result<(), Error> {
     let search_results = sqlx::query_as_unchecked!(
         Sound,

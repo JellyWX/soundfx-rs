@@ -13,7 +13,8 @@ use crate::{
     slash_command,
     rename = "upload",
     category = "Manage",
-    default_member_permissions = "MANAGE_GUILD"
+    default_member_permissions = "MANAGE_GUILD",
+    guild_only = true
 )]
 pub async fn upload_new_sound(
     ctx: Context<'_>,
@@ -100,7 +101,12 @@ pub async fn upload_new_sound(
 }
 
 /// Delete a sound you have uploaded
-#[poise::command(slash_command, rename = "delete", category = "Manage")]
+#[poise::command(
+    slash_command,
+    rename = "delete",
+    category = "Manage",
+    guild_only = true
+)]
 pub async fn delete_sound(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to delete"]
@@ -153,7 +159,12 @@ pub async fn delete_sound(
 }
 
 /// Change a sound between public and private
-#[poise::command(slash_command, rename = "public", category = "Manage")]
+#[poise::command(
+    slash_command,
+    rename = "public",
+    category = "Manage",
+    guild_only = true
+)]
 pub async fn change_public(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to change privacy setting of"]
@@ -196,7 +207,12 @@ pub async fn change_public(
 }
 
 /// Download a sound file from the bot
-#[poise::command(slash_command, rename = "download", category = "Manage")]
+#[poise::command(
+    slash_command,
+    rename = "download",
+    category = "Manage",
+    guild_only = true
+)]
 pub async fn download_file(
     ctx: Context<'_>,
     #[description = "Name or ID of sound to download"]
