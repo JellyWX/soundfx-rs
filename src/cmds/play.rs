@@ -1,6 +1,4 @@
-use poise::serenity::{
-    builder::CreateActionRow, model::interactions::message_component::ButtonStyle,
-};
+use poise::serenity::{builder::CreateActionRow, model::application::component::ButtonStyle};
 
 use crate::{
     cmds::autocomplete_sound,

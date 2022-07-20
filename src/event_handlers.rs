@@ -3,8 +3,8 @@ use std::{collections::HashMap, env};
 use poise::{
     serenity::{
         model::{
+            application::interaction::{Interaction, InteractionResponseType},
             channel::Channel,
-            interactions::{Interaction, InteractionResponseType},
         },
         prelude::Context,
         utils::shard_id,
@@ -126,6 +126,13 @@ SELECT name, id, public, server_id, uploader_id
         poise::Event::InteractionCreate { interaction } => match interaction {
             Interaction::MessageComponent(component) => {
                 if component.guild_id.is_some() {
+                    component
+                        .create_interaction_response(ctx, |r| {
+                            r.kind(InteractionResponseType::DeferredUpdateMessage)
+                        })
+                        .await
+                        .unwrap();
+
                     play_from_query(
                         &ctx,
                         &data,
@@ -135,13 +142,6 @@ SELECT name, id, public, server_id, uploader_id
                         false,
                     )
                     .await;
-
-                    component
-                        .create_interaction_response(ctx, |r| {
-                            r.kind(InteractionResponseType::DeferredUpdateMessage)
-                        })
-                        .await
-                        .unwrap();
                 }
             }
             _ => {}
