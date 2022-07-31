@@ -4,7 +4,7 @@ A bot for managing sound effects in Discord.
 
 ### Building
 
-`sudo apt install gcc gcc-multilib cmake`
+`sudo apt install gcc gcc-multilib cmake ffmpeg`
 
 Run the migrations in the `migrations` directory to set up the database.
 

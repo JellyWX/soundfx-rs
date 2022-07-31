@@ -92,7 +92,8 @@ pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> R
                         }
 
                         if allowed_greets {
-                            if let Some(join_id) = data.join_sound(new.user_id).await {
+                            if let Some(join_id) = data.join_sound(new.user_id, new.guild_id).await
+                            {
                                 let mut sound = sqlx::query_as_unchecked!(
                                     Sound,
                                     "

@@ -25,14 +25,13 @@ use tokio::sync::RwLock;
 
 use crate::{event_handlers::listener, models::guild_data::GuildData};
 
-// Which database driver are we using?
 type Database = MySql;
 
 pub struct Data {
     database: Pool<Database>,
     http: reqwest::Client,
     guild_data_cache: DashMap<GuildId, Arc<RwLock<GuildData>>>,
-    join_sound_cache: DashMap<UserId, Option<u32>>,
+    join_sound_cache: DashMap<UserId, DashMap<Option<GuildId>, Option<u32>>>,
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -103,10 +102,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cmds::settings::change_volume(),
             poise::Command {
                 subcommands: vec![
+                    poise::Command {
+                        subcommands: vec![
+                            cmds::settings::set_guild_greet_sound(),
+                            cmds::settings::unset_guild_greet_sound(),
+                        ],
+                        ..cmds::settings::guild_greet_sound()
+                    },
+                    poise::Command {
+                        subcommands: vec![
+                            cmds::settings::set_user_greet_sound(),
+                            cmds::settings::unset_user_greet_sound(),
+                        ],
+                        ..cmds::settings::user_greet_sound()
+                    },
                     cmds::settings::disable_greet_sound(),
                     cmds::settings::enable_greet_sound(),
-                    cmds::settings::set_greet_sound(),
-                    cmds::settings::unset_greet_sound(),
                 ],
                 ..cmds::settings::greet_sound()
             },
