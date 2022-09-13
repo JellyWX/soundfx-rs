@@ -197,32 +197,25 @@ impl SoundPager {
         let user_id = interaction.user.id;
         let guild_id = interaction.guild_id.unwrap();
 
-        match serde_json::from_str::<Self>(&interaction.data.custom_id) {
-            Ok(pager) => {
-                let sounds = pager.get_page(data, user_id, guild_id).await?;
-                let count = match pager.context {
-                    ListContext::User => data.count_user_sounds(user_id).await?,
-                    ListContext::Guild => data.count_guild_sounds(guild_id).await?,
-                };
+        let pager = serde_json::from_str::<Self>(&interaction.data.custom_id)?;
+        let sounds = pager.get_page(data, user_id, guild_id).await?;
+        let count = match pager.context {
+            ListContext::User => data.count_user_sounds(user_id).await?,
+            ListContext::Guild => data.count_guild_sounds(guild_id).await?,
+        };
 
-                interaction
-                    .create_interaction_response(&ctx, |r| {
-                        r.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| {
-                                d.ephemeral(true)
-                                    .add_embed(pager.embed(&sounds, count))
-                                    .components(|c| {
-                                        c.add_action_row(pager.create_action_row(count / 25))
-                                    })
-                            })
+        interaction
+            .create_interaction_response(&ctx, |r| {
+                r.kind(InteractionResponseType::UpdateMessage)
+                    .interaction_response_data(|d| {
+                        d.ephemeral(true)
+                            .add_embed(pager.embed(&sounds, count))
+                            .components(|c| c.add_action_row(pager.create_action_row(count / 25)))
                     })
-                    .await?;
+            })
+            .await?;
 
-                Ok(())
-            }
-
-            Err(_) => Ok(()),
-        }
+        Ok(())
     }
 
     async fn reply(&self, ctx: Context<'_>) -> Result<(), Error> {
