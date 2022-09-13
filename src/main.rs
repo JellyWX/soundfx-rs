@@ -11,7 +11,6 @@ mod utils;
 use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use dotenv::dotenv;
 use poise::serenity::{
     builder::CreateApplicationCommands,
     model::{
@@ -71,8 +70,6 @@ pub async fn register_application_commands(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
-
-    dotenv()?;
 
     let discord_token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");
 
@@ -138,9 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 register_application_commands(
                     ctx,
                     framework,
-                    env::var("DEBUG_GUILD")
-                        .map(|inner| GuildId(inner.parse().expect("DEBUG_GUILD not valid")))
-                        .ok(),
+                    None,
                 )
                 .await
                 .unwrap();

@@ -81,7 +81,7 @@ pub async fn set_guild_greet_sound(
         Some(sound) => {
             ctx.data()
                 .update_join_sound(user.id, ctx.guild_id(), Some(sound.id))
-                .await;
+                .await?;
 
             ctx.say(format!(
                 "Greet sound has been set to {} (ID {})",
@@ -123,7 +123,7 @@ pub async fn unset_guild_greet_sound(
 
     ctx.data()
         .update_join_sound(user.id, ctx.guild_id(), None)
-        .await;
+        .await?;
 
     ctx.say("Greet sound has been unset").await?;
 
@@ -153,7 +153,7 @@ pub async fn set_user_greet_sound(
         Some(sound) => {
             ctx.data()
                 .update_join_sound(ctx.author().id, None::<GuildId>, Some(sound.id))
-                .await;
+                .await?;
 
             ctx.send(|b| {
                 b.ephemeral(true).content(format!(
@@ -181,7 +181,7 @@ pub async fn set_user_greet_sound(
 pub async fn unset_user_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     ctx.data()
         .update_join_sound(ctx.author().id, None::<GuildId>, None)
-        .await;
+        .await?;
 
     ctx.send(|b| b.ephemeral(true).content("Greet sound has been unset"))
         .await?;

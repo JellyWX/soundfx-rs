@@ -1,6 +1,6 @@
 [package]
 name = "soundfx-rs"
-version = "1.5.1"
+version = "1.5.2"
 authors = ["jellywx <judesouthworth@pm.me>"]
 edition = "2018"
 
@@ -8,7 +8,6 @@ edition = "2018"
 songbird = { version = "0.3", features = ["builtin-queue"] }
 poise = "0.2"
 sqlx = { version = "0.5", default-features = false, features = ["runtime-tokio-rustls", "macros", "mysql", "bigdecimal"] }
-dotenv = "0.15"
 tokio = { version = "1", features = ["fs", "process", "io-util"] }
 lazy_static = "1.4"
 reqwest = "0.11"

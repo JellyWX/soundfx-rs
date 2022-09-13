@@ -21,6 +21,7 @@ pub async fn help(ctx: Context<'_>) -> Result<(), Error> {
 
 __Play Commands__
 `/play` - Play a sound by name or ID
+`/queue` - Play sounds on queue instead of instantly
 `/loop` - Play a sound on loop
 `/disconnect` - Disconnect the bot
 `/stop` - Stop playback
@@ -38,7 +39,8 @@ __Search Commands__
 `/random` - View random public sounds
 
 __Setting Commands__
-`/greet set/unset` - Set or unset a join sound
+`/greet server set/unset` - Set or unset a join sound for just this server
+`/greet user set/unset` - Set or unset a join sound across all servers
 `/greet enable/disable` - Enable or disable join sounds on this server
 `/volume` - Change the volume
 
