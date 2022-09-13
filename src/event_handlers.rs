@@ -13,6 +13,7 @@ use poise::{
 };
 
 use crate::{
+    cmds::search::SoundPager,
     models::{guild_data::CtxGuildData, join_sound::JoinSoundCtx, sound::Sound},
     utils::{join_channel, play_audio, play_from_query},
     Data, Error,
@@ -126,23 +127,26 @@ SELECT name, id, public, server_id, uploader_id
         }
         poise::Event::InteractionCreate { interaction } => match interaction {
             Interaction::MessageComponent(component) => {
-                if component.guild_id.is_some() {
-                    component
-                        .create_interaction_response(ctx, |r| {
-                            r.kind(InteractionResponseType::DeferredUpdateMessage)
-                        })
-                        .await
-                        .unwrap();
+                if let Some(guild_id) = component.guild_id {
+                    if let Ok(()) = SoundPager::handle_interaction(ctx, &data, component).await {
+                    } else {
+                        component
+                            .create_interaction_response(ctx, |r| {
+                                r.kind(InteractionResponseType::DeferredUpdateMessage)
+                            })
+                            .await
+                            .unwrap();
 
-                    play_from_query(
-                        &ctx,
-                        &data,
-                        component.guild_id.unwrap().to_guild_cached(&ctx).unwrap(),
-                        component.user.id,
-                        &component.data.custom_id,
-                        false,
-                    )
-                    .await;
+                        play_from_query(
+                            &ctx,
+                            &data,
+                            guild_id.to_guild_cached(&ctx).unwrap(),
+                            component.user.id,
+                            &component.data.custom_id,
+                            false,
+                        )
+                        .await;
+                    }
                 }
             }
             _ => {}

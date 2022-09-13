@@ -2,7 +2,7 @@ use std::{env, path::Path};
 
 use poise::serenity::async_trait;
 use songbird::input::restartable::Restartable;
-use sqlx::{Error, Executor};
+use sqlx::Executor;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 
 use crate::{consts::UPLOAD_MAX_SIZE, error::ErrorTypes, Data, Database};
@@ -37,12 +37,21 @@ pub trait SoundCtx {
         user_id: U,
         guild_id: G,
     ) -> Result<Vec<Sound>, sqlx::Error>;
-    async fn user_sounds<U: Into<u64> + Send>(&self, user_id: U)
-        -> Result<Vec<Sound>, sqlx::Error>;
+    async fn user_sounds<U: Into<u64> + Send>(
+        &self,
+        user_id: U,
+        page: Option<u64>,
+    ) -> Result<Vec<Sound>, sqlx::Error>;
     async fn guild_sounds<G: Into<u64> + Send>(
         &self,
         guild_id: G,
+        page: Option<u64>,
     ) -> Result<Vec<Sound>, sqlx::Error>;
+    async fn count_user_sounds<U: Into<u64> + Send>(&self, user_id: U) -> Result<u64, sqlx::Error>;
+    async fn count_guild_sounds<G: Into<u64> + Send>(
+        &self,
+        guild_id: G,
+    ) -> Result<u64, sqlx::Error>;
 }
 
 #[async_trait]
@@ -149,7 +158,7 @@ SELECT name, id, public, server_id, uploader_id
         query: &str,
         user_id: U,
         guild_id: G,
-    ) -> Result<Vec<Sound>, Error> {
+    ) -> Result<Vec<Sound>, sqlx::Error> {
         let db_pool = self.database.clone();
 
         sqlx::query_as_unchecked!(
@@ -171,18 +180,41 @@ LIMIT 25
     async fn user_sounds<U: Into<u64> + Send>(
         &self,
         user_id: U,
+        page: Option<u64>,
     ) -> Result<Vec<Sound>, sqlx::Error> {
-        let sounds = sqlx::query_as_unchecked!(
-            Sound,
-            "
+        let sounds = match page {
+            Some(page) => {
+                sqlx::query_as_unchecked!(
+                    Sound,
+                    "
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
+    ORDER BY name
+    LIMIT ?, ?
             ",
-            user_id.into()
-        )
-        .fetch_all(&self.database)
-        .await?;
+                    user_id.into(),
+                    page * 25,
+                    (page + 1) * 25
+                )
+                .fetch_all(&self.database)
+                .await?
+            }
+            None => {
+                sqlx::query_as_unchecked!(
+                    Sound,
+                    "
+SELECT name, id, public, server_id, uploader_id
+    FROM sounds
+    WHERE uploader_id = ?
+    ORDER BY name
+            ",
+                    user_id.into()
+                )
+                .fetch_all(&self.database)
+                .await?
+            }
+        };
 
         Ok(sounds)
     }
@@ -190,20 +222,67 @@ SELECT name, id, public, server_id, uploader_id
     async fn guild_sounds<G: Into<u64> + Send>(
         &self,
         guild_id: G,
+        page: Option<u64>,
     ) -> Result<Vec<Sound>, sqlx::Error> {
-        let sounds = sqlx::query_as_unchecked!(
-            Sound,
-            "
+        let sounds = match page {
+            Some(page) => {
+                sqlx::query_as_unchecked!(
+                    Sound,
+                    "
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
+    ORDER BY name
+    LIMIT ?, ?
             ",
-            guild_id.into()
-        )
-        .fetch_all(&self.database)
-        .await?;
+                    guild_id.into(),
+                    page * 25,
+                    (page + 1) * 25
+                )
+                .fetch_all(&self.database)
+                .await?
+            }
+
+            None => {
+                sqlx::query_as_unchecked!(
+                    Sound,
+                    "
+SELECT name, id, public, server_id, uploader_id
+    FROM sounds
+    WHERE server_id = ?
+    ORDER BY name
+            ",
+                    guild_id.into()
+                )
+                .fetch_all(&self.database)
+                .await?
+            }
+        };
 
         Ok(sounds)
+    }
+
+    async fn count_user_sounds<U: Into<u64> + Send>(&self, user_id: U) -> Result<u64, sqlx::Error> {
+        Ok(sqlx::query!(
+            "SELECT COUNT(1) as count FROM sounds WHERE uploader_id = ?",
+            user_id.into()
+        )
+        .fetch_one(&self.database)
+        .await?
+        .count as u64)
+    }
+
+    async fn count_guild_sounds<G: Into<u64> + Send>(
+        &self,
+        guild_id: G,
+    ) -> Result<u64, sqlx::Error> {
+        Ok(sqlx::query!(
+            "SELECT COUNT(1) as count FROM sounds WHERE server_id = ?",
+            guild_id.into()
+        )
+        .fetch_one(&self.database)
+        .await?
+        .count as u64)
     }
 }
 
@@ -262,7 +341,7 @@ SELECT src
     pub async fn count_user_sounds<U: Into<u64>>(
         user_id: U,
         db_pool: impl Executor<'_, Database = Database>,
-    ) -> Result<u32, sqlx::error::Error> {
+    ) -> Result<u32, sqlx::Error> {
         let user_id = user_id.into();
 
         let c = sqlx::query!(
@@ -284,7 +363,7 @@ SELECT COUNT(1) as count
         user_id: U,
         name: &String,
         db_pool: impl Executor<'_, Database = Database>,
-    ) -> Result<u32, sqlx::error::Error> {
+    ) -> Result<u32, sqlx::Error> {
         let user_id = user_id.into();
 
         let c = sqlx::query!(

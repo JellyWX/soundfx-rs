@@ -4,7 +4,7 @@ use crate::{consts::THEME_COLOR, Context, Error};
 #[poise::command(slash_command)]
 pub async fn help(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(|m| {
-        m.embed(|e| {
+        m.ephemeral(true).embed(|e| {
             e.title("Help")
                 .color(THEME_COLOR)
                 .footer(|f| {
@@ -59,7 +59,7 @@ __Advanced Commands__
 pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
     let current_user = ctx.discord().cache.current_user();
 
-    ctx.send(|m| m
+    ctx.send(|m| m.ephemeral(true)
         .embed(|e| e
             .title("Info")
             .color(THEME_COLOR)
