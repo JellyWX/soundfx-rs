@@ -190,7 +190,7 @@ LIMIT 25
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
-    ORDER BY name
+    ORDER BY id DESC
     LIMIT ?, ?
             ",
                     user_id.into(),
@@ -207,7 +207,7 @@ SELECT name, id, public, server_id, uploader_id
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE uploader_id = ?
-    ORDER BY name
+    ORDER BY id DESC
             ",
                     user_id.into()
                 )
@@ -232,7 +232,7 @@ SELECT name, id, public, server_id, uploader_id
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
-    ORDER BY name
+    ORDER BY id DESC
     LIMIT ?, ?
             ",
                     guild_id.into(),
@@ -250,7 +250,7 @@ SELECT name, id, public, server_id, uploader_id
 SELECT name, id, public, server_id, uploader_id
     FROM sounds
     WHERE server_id = ?
-    ORDER BY name
+    ORDER BY id DESC
             ",
                     guild_id.into()
                 )

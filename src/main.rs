@@ -132,13 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .token(discord_token)
         .user_data_setup(move |ctx, _bot, framework| {
             Box::pin(async move {
-                register_application_commands(
-                    ctx,
-                    framework,
-                    None,
-                )
-                .await
-                .unwrap();
+                register_application_commands(ctx, framework, None)
+                    .await
+                    .unwrap();
 
                 Ok(Data {
                     http: reqwest::Client::new(),
