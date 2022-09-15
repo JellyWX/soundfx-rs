@@ -181,7 +181,11 @@ impl SoundPager {
             .fields(sounds.iter().map(|s| {
                 (
                     s.name.as_str(),
-                    if s.public { "*Public*" } else { "*Private*" },
+                    format!(
+                        "ID: `{}`\n{}",
+                        s.id,
+                        if s.public { "*Public*" } else { "*Private*" }
+                    ),
                     true,
                 )
             }));

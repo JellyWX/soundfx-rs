@@ -1,6 +1,6 @@
 [package]
 name = "soundfx-rs"
-version = "1.5.4"
+version = "1.5.5"
 authors = ["jellywx <judesouthworth@pm.me>"]
 edition = "2018"
 
