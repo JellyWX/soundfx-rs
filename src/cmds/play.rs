@@ -1,4 +1,7 @@
-use poise::serenity::{builder::CreateActionRow, model::application::component::ButtonStyle};
+use poise::{
+    serenity::{builder::CreateActionRow, model::application::component::ButtonStyle},
+    serenity_prelude::GuildChannel,
+};
 
 use crate::{
     cmds::autocomplete_sound,
@@ -14,23 +17,32 @@ pub async fn play(
     #[description = "Name or ID of sound to play"]
     #[autocomplete = "autocomplete_sound"]
     name: String,
+    #[description = "Channel to play in (default: your current voice channel)"] channel: Option<
+        GuildChannel,
+    >,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
     let guild = ctx.guild().unwrap();
 
-    ctx.say(
-        play_from_query(
-            &ctx.discord(),
-            &ctx.data(),
-            guild,
-            ctx.author().id,
-            &name,
-            false,
+    if channel.as_ref().map_or(false, |c| c.is_text_based()) {
+        ctx.say("The channel specified is not a voice channel.")
+            .await?;
+    } else {
+        ctx.say(
+            play_from_query(
+                &ctx.discord(),
+                &ctx.data(),
+                guild,
+                ctx.author().id,
+                channel.map(|c| c.id),
+                &name,
+                false,
+            )
+            .await,
         )
-        .await,
-    )
-    .await?;
+        .await?;
+    }
 
     Ok(())
 }
@@ -224,6 +236,7 @@ pub async fn loop_play(
             &ctx.data(),
             guild,
             ctx.author().id,
+            None,
             &name,
             true,
         )

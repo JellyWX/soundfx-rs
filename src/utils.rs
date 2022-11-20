@@ -104,15 +104,18 @@ pub async fn play_from_query(
     data: &Data,
     guild: Guild,
     user_id: UserId,
+    channel: Option<ChannelId>,
     query: &str,
     loop_: bool,
 ) -> String {
     let guild_id = guild.id;
 
-    let channel_to_join = guild
-        .voice_states
-        .get(&user_id)
-        .and_then(|voice_state| voice_state.channel_id);
+    let channel_to_join = channel.or_else(|| {
+        guild
+            .voice_states
+            .get(&user_id)
+            .and_then(|voice_state| voice_state.channel_id)
+    });
 
     match channel_to_join {
         Some(user_channel) => {
