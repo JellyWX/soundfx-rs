@@ -9,7 +9,7 @@ pub mod stop;
 
 pub async fn autocomplete_sound(
     ctx: Context<'_>,
-    partial: String,
+    partial: &str,
 ) -> Vec<poise::AutocompleteChoice<String>> {
     ctx.data()
         .autocomplete_user_sounds(&partial, ctx.author().id, ctx.guild_id().unwrap())

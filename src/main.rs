@@ -11,7 +11,7 @@ mod utils;
 use std::{env, sync::Arc};
 
 use dashmap::DashMap;
-use poise::serenity::{
+use poise::serenity_prelude::{
     builder::CreateApplicationCommands,
     model::{
         gateway::GatewayIntents,
@@ -37,10 +37,10 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
 pub async fn register_application_commands(
-    ctx: &poise::serenity::client::Context,
+    ctx: &poise::serenity_prelude::Context,
     framework: &poise::Framework<Data, Error>,
     guild_id: Option<GuildId>,
-) -> Result<(), poise::serenity::Error> {
+) -> Result<(), poise::serenity_prelude::Error> {
     let mut commands_builder = CreateApplicationCommands::default();
     let commands = &framework.options().commands;
     for command in commands {
@@ -51,7 +51,7 @@ pub async fn register_application_commands(
             commands_builder.add_application_command(context_menu_command);
         }
     }
-    let commands_builder = poise::serenity::json::Value::Array(commands_builder.0);
+    let commands_builder = poise::serenity_prelude::json::Value::Array(commands_builder.0);
 
     if let Some(guild_id) = guild_id {
         ctx.http
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await
         .unwrap();
 
-    poise::Framework::build()
+    poise::Framework::builder()
         .token(discord_token)
         .user_data_setup(move |ctx, _bot, framework| {
             Box::pin(async move {

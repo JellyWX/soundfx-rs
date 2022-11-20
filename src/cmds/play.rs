@@ -1,6 +1,5 @@
-use poise::{
-    serenity::{builder::CreateActionRow, model::application::component::ButtonStyle},
-    serenity_prelude::GuildChannel,
+use poise::serenity_prelude::{
+    builder::CreateActionRow, model::application::component::ButtonStyle, GuildChannel,
 };
 
 use crate::{

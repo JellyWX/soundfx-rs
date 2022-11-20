@@ -1,7 +1,4 @@
-use poise::{
-    serenity::{async_trait, model::id::UserId},
-    serenity_prelude::GuildId,
-};
+use poise::serenity_prelude::{async_trait, model::id::UserId, GuildId};
 
 use crate::Data;
 

@@ -1,15 +1,12 @@
 use std::{collections::HashMap, env};
 
-use poise::{
-    serenity::{
-        model::{
-            application::interaction::{Interaction, InteractionResponseType},
-            channel::Channel,
-        },
-        prelude::Context,
-        utils::shard_id,
+use poise::serenity_prelude::{
+    model::{
+        application::interaction::{Interaction, InteractionResponseType},
+        channel::Channel,
     },
-    serenity_prelude::Activity,
+    utils::shard_id,
+    Activity, Context,
 };
 
 use crate::{

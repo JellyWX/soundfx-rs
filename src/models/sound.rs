@@ -1,6 +1,6 @@
 use std::{env, path::Path};
 
-use poise::serenity::async_trait;
+use poise::serenity_prelude::async_trait;
 use songbird::input::restartable::Restartable;
 use sqlx::Executor;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};

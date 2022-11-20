@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use poise::serenity::model::{
+use poise::serenity_prelude::model::{
     channel::Channel,
     guild::Guild,
     id::{ChannelId, UserId},

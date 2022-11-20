@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use poise::serenity::{async_trait, model::id::GuildId};
+use poise::serenity_prelude::{async_trait, model::id::GuildId};
 use sqlx::Executor;
 use tokio::sync::RwLock;
 
