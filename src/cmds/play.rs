@@ -16,9 +16,9 @@ pub async fn play(
     #[description = "Name or ID of sound to play"]
     #[autocomplete = "autocomplete_sound"]
     name: String,
-    #[description = "Channel to play in (default: your current voice channel)"] channel: Option<
-        GuildChannel,
-    >,
+    #[description = "Channel to play in (default: your current voice channel)"]
+    #[channel_types("Voice")]
+    channel: Option<GuildChannel>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
