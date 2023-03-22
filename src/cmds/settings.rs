@@ -2,7 +2,11 @@ use poise::serenity_prelude::{GuildId, User};
 
 use crate::{
     cmds::autocomplete_sound,
-    models::{guild_data::CtxGuildData, join_sound::JoinSoundCtx, sound::SoundCtx},
+    models::{
+        guild_data::{AllowGreet, CtxGuildData},
+        join_sound::JoinSoundCtx,
+        sound::SoundCtx,
+    },
     Context, Error,
 };
 
@@ -46,7 +50,7 @@ pub async fn guild_greet_sound(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Set a user's guild-specific join sound
+/// Set a user's server-specific join sound
 #[poise::command(slash_command, rename = "set")]
 pub async fn set_guild_greet_sound(
     ctx: Context<'_>,
@@ -98,7 +102,7 @@ pub async fn set_guild_greet_sound(
     Ok(())
 }
 
-/// Unset your global join sound
+/// Unset a user's server-specific join sound
 #[poise::command(slash_command, rename = "unset", guild_only = true)]
 pub async fn unset_guild_greet_sound(
     ctx: Context<'_>,
@@ -189,7 +193,7 @@ pub async fn unset_user_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Disable greet sounds on this server
+/// Disable all greet sounds on this server
 #[poise::command(
     slash_command,
     rename = "disable",
@@ -200,7 +204,7 @@ pub async fn disable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     let guild_data_opt = ctx.guild_data(ctx.guild_id().unwrap()).await;
 
     if let Ok(guild_data) = guild_data_opt {
-        guild_data.write().await.allow_greets = false;
+        guild_data.write().await.allow_greets = AllowGreet::Disabled;
 
         guild_data.read().await.commit(&ctx.data().database).await?;
     }
@@ -211,7 +215,29 @@ pub async fn disable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Enable greet sounds on this server
+/// Enable only server greet sounds on this server
+#[poise::command(
+    slash_command,
+    rename = "enable",
+    guild_only = true,
+    required_permissions = "MANAGE_GUILD"
+)]
+pub async fn enable_guild_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_data_opt = ctx.guild_data(ctx.guild_id().unwrap()).await;
+
+    if let Ok(guild_data) = guild_data_opt {
+        guild_data.write().await.allow_greets = AllowGreet::GuildOnly;
+
+        guild_data.read().await.commit(&ctx.data().database).await?;
+    }
+
+    ctx.say("Greet sounds have been partially enable in this server. Use \"/greet server set\" to configure server greet sounds.")
+        .await?;
+
+    Ok(())
+}
+
+/// Enable all greet sounds on this server
 #[poise::command(
     slash_command,
     rename = "enable",
@@ -222,7 +248,7 @@ pub async fn enable_greet_sound(ctx: Context<'_>) -> Result<(), Error> {
     let guild_data_opt = ctx.guild_data(ctx.guild_id().unwrap()).await;
 
     if let Ok(guild_data) = guild_data_opt {
-        guild_data.write().await.allow_greets = true;
+        guild_data.write().await.allow_greets = AllowGreet::Enabled;
 
         guild_data.read().await.commit(&ctx.data().database).await?;
     }

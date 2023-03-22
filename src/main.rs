@@ -103,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         subcommands: vec![
                             cmds::settings::set_guild_greet_sound(),
                             cmds::settings::unset_guild_greet_sound(),
+                            cmds::settings::enable_guild_greet_sound(),
                         ],
                         ..cmds::settings::guild_greet_sound()
                     },

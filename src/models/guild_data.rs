@@ -1,17 +1,25 @@
 use std::sync::Arc;
 
 use poise::serenity_prelude::{async_trait, model::id::GuildId};
-use sqlx::Executor;
+use sqlx::{Executor, Type};
 use tokio::sync::RwLock;
 
 use crate::{Context, Data, Database};
+
+#[derive(Copy, Clone, Type, PartialEq)]
+#[repr(i32)]
+pub enum AllowGreet {
+    Enabled = 1,
+    GuildOnly = 0,
+    Disabled = -1,
+}
 
 #[derive(Clone)]
 pub struct GuildData {
     pub id: u64,
     pub prefix: String,
     pub volume: u8,
-    pub allow_greets: bool,
+    pub allow_greets: AllowGreet,
     pub allowed_role: Option<u64>,
 }
 
@@ -109,7 +117,7 @@ INSERT INTO servers (id)
             id: guild_id.as_u64().to_owned(),
             prefix: String::from("?"),
             volume: 100,
-            allow_greets: true,
+            allow_greets: AllowGreet::Enabled,
             allowed_role: None,
         })
     }

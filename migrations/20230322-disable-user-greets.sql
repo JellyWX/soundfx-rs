@@ -1,0 +1,1 @@
+ALTER TABLE servers MODIFY COLUMN allow_greets INT NOT NULL DEFAULT 1;

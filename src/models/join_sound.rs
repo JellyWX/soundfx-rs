@@ -8,6 +8,7 @@ pub trait JoinSoundCtx {
         &self,
         user_id: U,
         guild_id: Option<G>,
+        guild_only: bool,
     ) -> Option<u32>;
     async fn update_join_sound<U: Into<UserId> + Send + Sync, G: Into<GuildId> + Send + Sync>(
         &self,
@@ -17,12 +18,17 @@ pub trait JoinSoundCtx {
     ) -> Result<(), sqlx::Error>;
 }
 
+struct JoinSound {
+    join_sound_id: u32,
+}
+
 #[async_trait]
 impl JoinSoundCtx for Data {
     async fn join_sound<U: Into<UserId> + Send + Sync, G: Into<GuildId> + Send + Sync>(
         &self,
         user_id: U,
         guild_id: Option<G>,
+        guild_only: bool,
     ) -> Option<u32> {
         let user_id = user_id.into();
         let guild_id = guild_id.map(|g| g.into());
@@ -37,19 +43,37 @@ impl JoinSoundCtx for Data {
             join_sound_id
         } else {
             let join_sound_id = {
-                let join_id_res = sqlx::query!(
-                    "
+                let join_id_res = if guild_only {
+                    sqlx::query_as!(
+                        JoinSound,
+                        "
+SELECT join_sound_id
+    FROM join_sounds
+    WHERE user = ?
+    AND guild = ?
+    ORDER BY guild IS NULL
+                    ",
+                        user_id.as_u64(),
+                        guild_id.map(|g| g.0)
+                    )
+                    .fetch_one(&self.database)
+                    .await
+                } else {
+                    sqlx::query_as!(
+                        JoinSound,
+                        "
 SELECT join_sound_id
     FROM join_sounds
     WHERE user = ?
     AND (guild IS NULL OR guild = ?)
     ORDER BY guild IS NULL
                     ",
-                    user_id.as_u64(),
-                    guild_id.map(|g| g.0)
-                )
-                .fetch_one(&self.database)
-                .await;
+                        user_id.as_u64(),
+                        guild_id.map(|g| g.0)
+                    )
+                    .fetch_one(&self.database)
+                    .await
+                };
 
                 if let Ok(row) = join_id_res {
                     Some(row.join_sound_id)

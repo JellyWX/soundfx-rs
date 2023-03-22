@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "soundfx-rs"
-version = "1.5.6"
+version = "1.5.7"
 dependencies = [
  "dashmap",
  "env_logger",

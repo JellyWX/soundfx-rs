@@ -11,7 +11,11 @@ use poise::serenity_prelude::{
 
 use crate::{
     cmds::search::SoundPager,
-    models::{guild_data::CtxGuildData, join_sound::JoinSoundCtx, sound::Sound},
+    models::{
+        guild_data::{AllowGreet, CtxGuildData},
+        join_sound::JoinSoundCtx,
+        sound::Sound,
+    },
     utils::{join_channel, play_audio, play_from_query},
     Data, Error,
 };
@@ -89,8 +93,14 @@ pub async fn listener(ctx: &Context, event: &poise::Event<'_>, data: &Data) -> R
                             allowed_greets = read.allow_greets;
                         }
 
-                        if allowed_greets {
-                            if let Some(join_id) = data.join_sound(new.user_id, new.guild_id).await
+                        if allowed_greets != AllowGreet::Disabled {
+                            if let Some(join_id) = data
+                                .join_sound(
+                                    new.user_id,
+                                    new.guild_id,
+                                    allowed_greets == AllowGreet::GuildOnly,
+                                )
+                                .await
                             {
                                 let mut sound = sqlx::query_as_unchecked!(
                                     Sound,
