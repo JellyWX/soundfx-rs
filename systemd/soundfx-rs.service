@@ -1,0 +1,14 @@
+[Unit]
+Description=Discord bot for custom sound effects and soundboards
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/soundfx-rs
+WorkingDirectory=/etc/soundfx-rs
+Restart=always
+RestartSec=4
+# Environment="RUST_LOG=warn,soundfx_rs=info"
+# Environment="RUST_BACKTRACE=full"
+
+[Install]
+WantedBy=multi-user.target
