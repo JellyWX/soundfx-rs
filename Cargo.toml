@@ -19,6 +19,7 @@ log = "0.4"
 serde_json = "1.0"
 dashmap = "5.3"
 serde = "1.0"
+dotenv = "0.15.0"
 
 [patch."https://github.com/serenity-rs/serenity"]
 serenity = { version = "0.11.5" }
@@ -29,7 +30,7 @@ suggests = "mysql-server-8.0"
 maintainer-scripts = "debian"
 assets = [
     ["target/release/soundfx-rs", "usr/bin/soundfx-rs", "755"],
-    ["conf/default", "etc/soundfx-rs/default", "600"]
+    ["conf/default.env", "etc/soundfx-rs/default.env", "600"]
 ]
 
 [package.metadata.deb.systemd-units]

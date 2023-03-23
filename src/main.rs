@@ -8,7 +8,7 @@ mod event_handlers;
 mod models;
 mod utils;
 
-use std::{env, sync::Arc};
+use std::{env, path::Path, sync::Arc};
 
 use dashmap::DashMap;
 use poise::serenity_prelude::{
@@ -68,6 +68,10 @@ pub async fn register_application_commands(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if Path::new("/etc/soundfx-rs/default.env").exists() {
+        dotenv::from_path("/etc/soundfx-rs/default.env").unwrap();
+    }
+
     env_logger::init();
 
     let discord_token = env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN from environment");

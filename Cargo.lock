@@ -2091,6 +2091,7 @@ name = "soundfx-rs"
 version = "1.5.7"
 dependencies = [
  "dashmap",
+ "dotenv",
  "env_logger",
  "lazy_static",
  "log",
