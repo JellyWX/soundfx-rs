@@ -66,7 +66,6 @@ pub async fn register_application_commands(
     Ok(())
 }
 
-// entry point
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
@@ -128,6 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let database = Pool::connect(&env::var("DATABASE_URL").expect("No database URL provided"))
         .await
         .unwrap();
+
+    sqlx::migrate!().run(&database).await?;
 
     poise::Framework::builder()
         .token(discord_token)
