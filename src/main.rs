@@ -68,8 +68,8 @@ pub async fn register_application_commands(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if Path::new("/etc/soundfx-rs/default.env").exists() {
-        dotenv::from_path("/etc/soundfx-rs/default.env").unwrap();
+    if Path::new("/etc/soundfx-rs/config.env").exists() {
+        dotenv::from_path("/etc/soundfx-rs/config.env").unwrap();
     }
 
     env_logger::init();

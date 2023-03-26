@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -e
+if [ ! -f /etc/soundfx-rs/config.env ]; then
+  cp /etc/soundfx-rs/default.env /etc/soundfx-rs/config.env
+fi
+
+#DEBHELPER#

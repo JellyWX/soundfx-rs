@@ -409,16 +409,9 @@ WHERE
         &self,
         db_pool: impl Executor<'_, Database = Database>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        sqlx::query!(
-            "
-DELETE
-    FROM sounds
-    WHERE id = ?
-            ",
-            self.id
-        )
-        .execute(db_pool)
-        .await?;
+        sqlx::query!("DELETE FROM sounds WHERE id = ?", self.id)
+            .execute(db_pool)
+            .await?;
 
         Ok(())
     }
