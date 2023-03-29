@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+id -u soundfx &>/dev/null || userdel soundfx
+
+if [ -f /etc/soundfx-rs/config.env ]; then
+  rm /etc/soundfx/config.env
+fi
+
+#DEBHELPER#

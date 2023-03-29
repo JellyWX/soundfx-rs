@@ -2,6 +2,7 @@
 Description=Discord bot for custom sound effects and soundboards
 
 [Service]
+User=soundfx
 Type=simple
 ExecStart=/usr/bin/soundfx-rs
 WorkingDirectory=/etc/soundfx-rs

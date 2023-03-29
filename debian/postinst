@@ -1,8 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
+
+id -u soundfx &>/dev/null || useradd -r -M soundfx
+
 if [ ! -f /etc/soundfx-rs/config.env ]; then
   cp /etc/soundfx-rs/default.env /etc/soundfx-rs/config.env
 fi
+
+chown soundfx /etc/soundfx-rs/config.env
 
 #DEBHELPER#
