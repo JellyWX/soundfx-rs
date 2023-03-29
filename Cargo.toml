@@ -2,7 +2,7 @@
 name = "soundfx-rs"
 description = "Discord bot for custom sound effects and soundboards"
 license = "AGPL-3.0-only"
-version = "1.5.7"
+version = "1.5.8"
 authors = ["jellywx <judesouthworth@pm.me>"]
 edition = "2018"
 
