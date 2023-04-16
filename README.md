@@ -1,1 +1,1 @@
-# MOVED! Go to gitea.jellypro.xyz/jude/soundfx-bot
+# MOVED! Go to https://gitea.jellypro.xyz/jude/soundfx-bot
